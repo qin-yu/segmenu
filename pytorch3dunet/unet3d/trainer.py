@@ -1,5 +1,8 @@
 import os
 
+import numpy as np
+
+import wandb
 import torch
 import torch.nn as nn
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -344,6 +347,7 @@ class UNet3DTrainer:
     def _log_lr(self):
         lr = self.optimizer.param_groups[0]['lr']
         self.writer.add_scalar('learning_rate', lr, self.num_iterations)
+        wandb.log({'learning_rate': lr}, step=self.num_iterations)
 
     def _log_stats(self, phase, loss_avg, eval_score_avg):
         tag_value = {
@@ -351,6 +355,7 @@ class UNet3DTrainer:
             f'{phase}_eval_score_avg': eval_score_avg
         }
 
+        wandb.log(tag_value, step=self.num_iterations)
         for tag, value in tag_value.items():
             self.writer.add_scalar(tag, value, self.num_iterations)
 
@@ -361,15 +366,6 @@ class UNet3DTrainer:
             self.writer.add_histogram(name + '/grad', value.grad.data.cpu().numpy(), self.num_iterations)
 
     def _log_images(self, input, target, prediction, prefix=''):
-        if self.model.training:
-            if isinstance(self.model, nn.DataParallel):
-                net = self.model.module
-            else:
-                net = self.model
-
-            if net.final_activation is not None:
-                prediction = net.final_activation(prediction)
-
         inputs_map = {
             'inputs': input,
             'targets': target,
@@ -385,7 +381,9 @@ class UNet3DTrainer:
 
         for name, batch in img_sources.items():
             for tag, image in self.tensorboard_formatter(name, batch):
-                self.writer.add_image(prefix + tag, image, self.num_iterations)
+                self.writer.add_image(prefix + tag, image, self.num_iterations, dataformats='CHW')
+                image = np.transpose(image, (1, 2, 0))
+                wandb.log({prefix + tag: wandb.Image(image)}, step=self.num_iterations)
 
     @staticmethod
     def _batch_size(input):
