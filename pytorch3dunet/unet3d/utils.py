@@ -382,39 +382,4 @@ def create_wandb_config(config):
     checkpoint_dir = config['trainer']['checkpoint_dir']
     run_name = os.path.basename(os.path.normpath(checkpoint_dir))
 
-    # # extract essential hyperparams
-    # # g-net type
-    # if 'k_dropout' in config['trainer']:
-    #     g_net_type = 'dropout'
-    # elif config['model'].get('train_jointly', False):
-    #     g_net_type = 'trained'
-    # elif config['model']['momentum'] == 0:
-    #     g_net_type = 'shared'
-    # else:
-    #     g_net_type = 'momentum'
-
-    # conf = {
-    #     # 'dataset': config['loaders']['dataset'],
-    #     # 'instance_ratio': config['loaders']['dataset']['train'].get('instance_ratio', None),
-    #     'batch_size': config['loaders']['batch_size'],
-    #     'model_feature_maps': config['model']['f_maps'],
-    #     'model_layer_order': config['model']['layer_order'],
-    #     # 'model_g_net': g_net_type,
-    #     # 'momentum': config['model']['momentum'],
-    #     'loss_name': config['loss']['name'],
-    #     # 'loss_delta_var': config['loss']['delta_var'],
-    #     # 'loss_delta_dist': config['loss']['delta_dist'],
-    #     # 'loss_alpha': config['loss']['alpha'],
-    #     # 'loss_beta': config['loss']['beta'],
-    #     # 'loss_gamma': config['loss']['gamma'],
-    #     # 'loss_delta': config['loss']['delta'],
-    #     # 'loss_consistency_weight': config['loss'].get('consistency_weight', None),
-    #     # 'loss_instance_weight': config['loss']['delta'],
-    #     # 'loss_kernel_threshold': config['loss'].get('kernel_threshold', None),
-    #     'optim_learning_rate': config['optimizer']['learning_rate'],
-    #     'optim_weight_decay': config['optimizer']['weight_decay']
-    # }
-
-    conf = config
-
-    return project_name, run_name, conf
+    return project_name, run_name, config

@@ -379,11 +379,19 @@ class UNet3DTrainer:
             else:
                 img_sources[name] = batch.data.cpu().numpy()
 
+        img_wandb = []
         for name, batch in img_sources.items():
             for tag, image in self.tensorboard_formatter(name, batch):
                 self.writer.add_image(prefix + tag, image, self.num_iterations, dataformats='CHW')
                 image = np.transpose(image, (1, 2, 0))
-                wandb.log({prefix + tag: wandb.Image(image)}, step=self.num_iterations)
+                img_wandb.append(image)
+                # wandb.log({prefix + tag: wandb.Image(image)}, step=self.num_iterations)
+
+        # Concatenate raw, label and prediction respectively into 3 columns then into a grid:
+        img_cols = [np.vstack(img_wandb[len(input)*i:len(input)*(i+1)]) for i in range(len(inputs_map))]
+        img_grid = np.hstack(img_cols)
+        wandb.log({prefix: wandb.Image(img_grid)}, step=self.num_iterations)
+
 
     @staticmethod
     def _batch_size(input):
