@@ -384,13 +384,18 @@ class UNet3DTrainer:
             for tag, image in self.tensorboard_formatter(name, batch):
                 self.writer.add_image(prefix + tag, image, self.num_iterations, dataformats='CHW')
                 image = np.transpose(image, (1, 2, 0))
-                img_wandb.append(image)
+                img_wandb.append(image)  # img_wandb = [input0, ... , inputN, target0, ... , targetN, pred0, ... , predN]
                 # wandb.log({prefix + tag: wandb.Image(image)}, step=self.num_iterations)
 
         # Concatenate raw, label and prediction respectively into 3 columns then into a grid:
-        img_cols = [np.vstack(img_wandb[len(input)*i:len(input)*(i+1)]) for i in range(len(inputs_map))]
-        img_grid = np.hstack(img_cols)
-        wandb.log({prefix: wandb.Image(img_grid)}, step=self.num_iterations)
+        # img_cols = [np.vstack(img_wandb[len(input)*i:len(input)*(i+1)]) for i in range(len(inputs_map))]
+        # img_grid = np.hstack(img_cols)
+        # wandb.log({prefix + "all": wandb.Image(img_grid)}, step=self.num_iterations)
+
+        # Log each raw, label and prediction pair separately:
+        for i in range(len(input)):
+            img_row = np.hstack([img_wandb[len(input) * j] for j in range(len(inputs_map))])
+            wandb.log({prefix + f"{i}": wandb.Image(img_row)}, step=self.num_iterations)
 
 
     @staticmethod
