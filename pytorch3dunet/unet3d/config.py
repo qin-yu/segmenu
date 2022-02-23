@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime
 
 import torch
 import yaml
@@ -6,6 +7,7 @@ import yaml
 from pytorch3dunet.unet3d import utils
 
 logger = utils.get_logger('ConfigLoader')
+TIMESTAMP = '{TIMESTAMP}'
 
 
 def load_config():
@@ -13,6 +15,7 @@ def load_config():
     parser.add_argument('--config', type=str, help='Path to the YAML config file', required=True)
     args = parser.parse_args()
     config = yaml.safe_load(open(args.config, 'r'))
+
     # Get a device to train on
     device_str = config.get('device', None)
     if device_str is not None:
@@ -26,6 +29,12 @@ def load_config():
 
     device = torch.device(device_str)
     config['device'] = device
+
+    # Time-stamp the checkpoint dir
+    checkpoint_dir = config['trainer']['checkpoint_dir']
+    if TIMESTAMP in checkpoint_dir:
+        config['trainer']['checkpoint_dir'] = config['trainer']['checkpoint_dir'].replace(TIMESTAMP, datetime.now().strftime("%Y%m%d%H%M%S"))
+
     return config
 
 
