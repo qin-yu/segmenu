@@ -393,9 +393,21 @@ class UNet3DTrainer:
         # wandb.log({prefix + "all": wandb.Image(img_grid)}, step=self.num_iterations)
 
         # Log each raw, label and prediction pair separately:
-        for i in range(len(input)):
-            img_row = np.hstack([img_wandb[len(input) * j + i] for j in range(len(inputs_map))])
-            wandb.log({prefix + f"{i}": wandb.Image(img_row)}, step=self.num_iterations)
+        if len(img_wandb) == 3 * len(input):
+            for i in range(len(input)):
+                img_row = np.hstack([img_wandb[len(input) * j + i] for j in range(len(inputs_map))])
+                wandb.log({prefix + f"{i}": wandb.Image(img_row)}, step=self.num_iterations)
+        elif len(img_wandb) == 5 * len(input):
+            for i in range(len(input)):
+                img_row = np.hstack([
+                    img_wandb[len(input) * 0 + i],
+                    img_wandb[len(input) * 1 + i],     img_wandb[len(input) * 3 + i],
+                    img_wandb[len(input) * 1 + i + 1], img_wandb[len(input) * 3 + i + 1],
+                ])
+                wandb.log({prefix + f"{i}": wandb.Image(img_row)}, step=self.num_iterations)
+        else:
+            raise NotImplementedError
+        
 
 
     @staticmethod
