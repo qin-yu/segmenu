@@ -394,7 +394,7 @@ class UNet3DTrainer:
 
         # Log each raw, label and prediction pair separately:
         for i in range(len(input)):
-            img_row = np.hstack([img_wandb[len(input) * j] for j in range(len(inputs_map))])
+            img_row = np.hstack([img_wandb[len(input) * j + i] for j in range(len(inputs_map))])
             wandb.log({prefix + f"{i}": wandb.Image(img_row)}, step=self.num_iterations)
 
 
