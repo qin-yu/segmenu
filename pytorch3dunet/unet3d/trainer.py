@@ -393,22 +393,23 @@ class UNet3DTrainer:
         # wandb.log({prefix + "all": wandb.Image(img_grid)}, step=self.num_iterations)
 
         # Log each raw, label and prediction pair separately:
+        n_patch = len(input)
+        id_width = len(str(n_patch))
         if len(img_wandb) == 3 * len(input):
-            for i in range(len(input)):
-                img_row = np.hstack([img_wandb[len(input) * j + i] for j in range(len(inputs_map))])
-                wandb.log({prefix + f"{i}": wandb.Image(img_row)}, step=self.num_iterations)
-        elif len(img_wandb) == 5 * len(input):
-            for i in range(len(input)):
+            for i in range(n_patch):
+                img_row = np.hstack([img_wandb[n_patch * j + i] for j in range(len(inputs_map))])
+                wandb.log({prefix + f"{i:0{id_width}d}": wandb.Image(img_row)}, step=self.num_iterations)
+        elif len(img_wandb) == 5 * n_patch:
+            for i in range(n_patch):
                 img_row = np.hstack([
-                    img_wandb[len(input) * 0 + i],
-                    img_wandb[len(input) * 1 + i],     img_wandb[len(input) * 3 + i],
-                    img_wandb[len(input) * 1 + i + 1], img_wandb[len(input) * 3 + i + 1],
+                    # [r0, r1, ..., r24, l0.0, l0.1, l1.0, l1.1, ..., l24.0, l24.1, p0.0, p0.1, ..., p24]
+                    img_wandb[0*n_patch + 1*i],
+                    img_wandb[1*n_patch + 2*i],     img_wandb[3*n_patch + 2*i],
+                    img_wandb[1*n_patch + 2*i + 1], img_wandb[3*n_patch + 2*i + 1],
                 ])
-                wandb.log({prefix + f"{i}": wandb.Image(img_row)}, step=self.num_iterations)
+                wandb.log({prefix + f"{i:0{id_width}d}": wandb.Image(img_row)}, step=self.num_iterations)
         else:
             raise NotImplementedError
-        
-
 
     @staticmethod
     def _batch_size(input):
