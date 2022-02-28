@@ -10,7 +10,7 @@ logger = utils.get_logger('ConfigLoader')
 TIMESTAMP = '{TIMESTAMP}'
 
 
-def load_config():
+def load_config(config_type=None):
     parser = argparse.ArgumentParser(description='UNet3D')
     parser.add_argument('--config', type=str, help='Path to the YAML config file', required=True)
     args = parser.parse_args()
@@ -31,9 +31,10 @@ def load_config():
     config['device'] = device
 
     # Time-stamp the checkpoint dir
-    checkpoint_dir = config['trainer']['checkpoint_dir']
-    if TIMESTAMP in checkpoint_dir:
-        config['trainer']['checkpoint_dir'] = config['trainer']['checkpoint_dir'].replace(TIMESTAMP, datetime.now().strftime("%Y%m%d%H%M%S"))
+    if config_type == 'train':
+        checkpoint_dir = config['trainer']['checkpoint_dir']
+        if TIMESTAMP in checkpoint_dir:
+            config['trainer']['checkpoint_dir'] = config['trainer']['checkpoint_dir'].replace(TIMESTAMP, datetime.now().strftime("%Y%m%d%H%M%S"))
 
     return config
 

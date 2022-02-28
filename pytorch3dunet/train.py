@@ -15,7 +15,7 @@ logger = get_logger('TrainingSetup')
 
 def main():
     # Load and log experiment configuration
-    config = load_config()
+    config = load_config(config_type='train')
     os.environ['WANDB_DIR'] = config['trainer']['checkpoint_dir']
     Path(config['trainer']['checkpoint_dir']).mkdir(parents=True, exist_ok=True)
     wandb_project, wandb_name, wandb_config = create_wandb_config(config)
