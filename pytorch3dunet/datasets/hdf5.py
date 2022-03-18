@@ -34,8 +34,8 @@ class AbstractHDF5Dataset(ConfigDataset):
         :para'/home/adrian/workspace/ilastik-datasets/VolkerDeconv/train'm slice_builder_config: configuration of the SliceBuilder
         :param transformer_config: data augmentation configuration
         :param mirror_padding (int or tuple): number of voxels padded to each axis
-        :param raw_internal_path (str or list): H5 internal path to the raw dataset
-        :param label_internal_path (str or list): H5 internal path to the label dataset
+        :param raw_internal_path (str or list): H5 internal path to the raw dataset      # List is not implemented
+        :param label_internal_path (str or list): H5 internal path to the label dataset  # List is not implemented
         :param weight_internal_path (str or list): H5 internal path to the per pixel weights
         """
         assert phase in ['train', 'val', 'test']
@@ -103,11 +103,19 @@ class AbstractHDF5Dataset(ConfigDataset):
 
     @staticmethod
     def fetch_and_check(input_file, internal_path):
-        ds = input_file[internal_path][:]
-        if ds.ndim == 2:
-            # expand dims if 2d
-            ds = np.expand_dims(ds, axis=0)
-        return ds
+        if isinstance(internal_path, str):
+            ds = input_file[internal_path][:]
+            if ds.ndim == 2:
+                # expand dims if 2d
+                ds = np.expand_dims(ds, axis=0)
+            return ds
+        elif isinstance(internal_path, list):
+            cs = [input_file[path][:] for path in internal_path]  # channels
+            cs = [np.expand_dims(c, axis=0) if c.ndim == 2 else c for c in cs]
+            ds = np.stack(cs)
+            return ds
+        else:
+            raise TypeError("`internal_path` must be a string or a list.")
 
     def __getitem__(self, idx):
         if idx >= len(self):
