@@ -408,8 +408,7 @@ class UNet3DTrainer:
                     img_wandb[1*n_patch + 2*i + 1], img_wandb[3*n_patch + 2*i + 1],
                 ])
                 wandb.log(
-                    {prefix + f"{i:0{id_width}d}": wandb.Image(img_row)}, 
-                    caption = "Raw, GT, Pred, GT, Pred",
+                    {prefix + f"{i:0{id_width}d}": wandb.Image(img_row, caption = "Raw, GT, Pred, GT, Pred")},
                     step=self.num_iterations
                 )
         elif len(img_wandb) == 6 * n_patch:
@@ -420,8 +419,7 @@ class UNet3DTrainer:
                     img_wandb[2*n_patch + 2*i + 1], img_wandb[4*n_patch + 2*i + 1],
                 ])
                 wandb.log(
-                    {prefix + f"{i:0{id_width}d}": wandb.Image(img_row)}, 
-                    caption = "C1, C2, GT, Pred, GT, Pred",
+                    {prefix + f"{i:0{id_width}d}": wandb.Image(img_row, caption = "C1, C2, GT, Pred, GT, Pred")}, 
                     step=self.num_iterations
                 )
         else:
