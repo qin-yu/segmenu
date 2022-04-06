@@ -110,7 +110,7 @@ class AbstractHDF5Dataset(ConfigDataset):
                 ds = np.expand_dims(ds, axis=0)
             return ds
         elif isinstance(internal_path, list):
-            cs = [input_file[path][:] for path in internal_path]  # channels
+            cs = [input_file[path][:] for path in internal_path]  # `cs` means channels
             cs = [np.expand_dims(c, axis=0) if c.ndim == 2 else c for c in cs]
             ds = np.stack(cs)
             return ds

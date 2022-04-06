@@ -395,14 +395,14 @@ class UNet3DTrainer:
         # Log each raw, label and prediction pair separately:
         n_patch = len(input)
         id_width = len(str(n_patch))
-        if len(img_wandb) == 3 * len(input):
+        if len(img_wandb) == 3 * len(input):  # Raw, Label, Pred
             for i in range(n_patch):
                 img_row = np.hstack([img_wandb[n_patch * j + i] for j in range(len(inputs_map))])
                 wandb.log({prefix + f"{i:0{id_width}d}": wandb.Image(img_row)}, step=self.num_iterations)
-        elif len(img_wandb) == 5 * n_patch:
+        elif len(img_wandb) == 5 * n_patch:  # Raw, GT, Pred, GT, Pred 
             for i in range(n_patch):
                 img_row = np.hstack([
-                    # [r0, r1, ..., r24, l0.0, l0.1, l1.0, l1.1, ..., l24.0, l24.1, p0.0, p0.1, ..., p24]
+                    # [r0, r1, ..., r24, l0.0, l0.1, l1.0, l1.1, ..., l24.0, l24.1, p0.0, p0.1, ..., p24.0, p24.1]
                     img_wandb[0*n_patch + 1*i],
                     img_wandb[1*n_patch + 2*i],     img_wandb[3*n_patch + 2*i],
                     img_wandb[1*n_patch + 2*i + 1], img_wandb[3*n_patch + 2*i + 1],
@@ -411,7 +411,7 @@ class UNet3DTrainer:
                     {prefix + f"{i:0{id_width}d}": wandb.Image(img_row, caption = "Raw, GT, Pred, GT, Pred")},
                     step=self.num_iterations
                 )
-        elif len(img_wandb) == 6 * n_patch:
+        elif len(img_wandb) == 6 * n_patch:  # C1, C2, GT, Pred, GT, Pred
             for i in range(n_patch):
                 img_row = np.hstack([
                     img_wandb[0*n_patch + 2*i],     img_wandb[0*n_patch + 2*i + 1],
@@ -420,6 +420,18 @@ class UNet3DTrainer:
                 ])
                 wandb.log(
                     {prefix + f"{i:0{id_width}d}": wandb.Image(img_row, caption = "C1, C2, GT, Pred, GT, Pred")}, 
+                    step=self.num_iterations
+                )
+        elif len(img_wandb) == 8 * n_patch:  # C1, C2, GT, Pred, GT, Pred, GT, Pred
+            for i in range(n_patch):
+                img_row = np.hstack([
+                    img_wandb[0*n_patch + 2*i],     img_wandb[0*n_patch + 2*i + 1],
+                    img_wandb[2*n_patch + 3*i],     img_wandb[5*n_patch + 3*i],
+                    img_wandb[2*n_patch + 3*i + 1], img_wandb[5*n_patch + 3*i + 1],
+                    img_wandb[2*n_patch + 3*i + 2], img_wandb[5*n_patch + 3*i + 2],
+                ])
+                wandb.log(
+                    {prefix + f"{i:0{id_width}d}": wandb.Image(img_row, caption = "C1, C2, GT, Pred, GT, Pred, GT, Pred")}, 
                     step=self.num_iterations
                 )
         else:

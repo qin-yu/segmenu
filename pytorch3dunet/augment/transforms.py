@@ -340,6 +340,39 @@ class StandardLabelToBoundary:
         return np.stack(results, axis=0)
 
 
+class LabelToBoundaryPlusNuclei:
+    '''
+    Input `mn` 2 x D x H x W with `m = mn[0]` be cells and `n = mn[1]` be nuclei;
+    Output 3 x D x H x W with boundary + cells foreground + nuclei foreground.
+    '''
+    def __init__(self, ignore_index=None, append_label=False, mode='thick', foreground=False,
+                 **kwargs):
+        self.ignore_index = ignore_index
+        self.append_label = append_label
+        self.mode = mode
+        self.foreground = foreground
+
+    def __call__(self, mn):        
+        results = []
+
+        m = mn[0]
+        if self.foreground:
+            foreground = (m > 0).astype('uint8')
+            results.append(_recover_ignore_index(foreground, m, self.ignore_index))
+        boundaries = find_boundaries(m, connectivity=2, mode=self.mode).astype('int32')
+        results.append(_recover_ignore_index(boundaries, m, self.ignore_index))
+
+        n = mn[1]
+        nuclei = (n > 0).astype('uint8')
+        results.append(_recover_ignore_index(nuclei, n, self.ignore_index))
+
+        if self.append_label:
+            # append original input data
+            results.append(m)
+
+        return np.stack(results, axis=0)
+
+
 class BlobsWithBoundary:
     def __init__(self, mode=None, append_label=False, **kwargs):
         if mode is None:
