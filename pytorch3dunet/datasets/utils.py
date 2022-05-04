@@ -130,6 +130,36 @@ class SliceBuilder:
         assert patch_shape[1] >= 64 and patch_shape[2] >= 64, 'Height and Width must be greater or equal 64'
 
 
+class MultiheadSliceBuilder(SliceBuilder):
+    def __init__(self, raw_dataset, label_dataset, weight_dataset, patch_shape, stride_shape, **kwargs):
+        """
+        :param raw_dataset: ndarray of raw data
+        :param label_dataset: ndarray of ground truth labels
+        :param weight_dataset: ndarray of weights for the labels
+        :param patch_shape: the shape of the patch DxHxW
+        :param stride_shape: the shape of the stride DxHxW
+        :param kwargs: additional metadata
+        """
+
+        patch_shape = tuple(patch_shape)
+        stride_shape = tuple(stride_shape)
+        skip_shape_check = kwargs.get('skip_shape_check', False)
+        if not skip_shape_check:
+            self._check_patch_shape(patch_shape)
+
+        self._raw_slices = self._build_slices(raw_dataset, patch_shape, stride_shape)
+        if label_dataset is None:
+            self._label_slices = None
+        else:
+            # take the first element in the label_dataset to build slices
+            self._label_slices = self._build_slices(label_dataset, patch_shape, stride_shape)
+            assert len(self._raw_slices) == len(self._label_slices)
+        if weight_dataset is None:
+            self._weight_slices = None
+        else:
+            self._weight_slices = self._build_slices(weight_dataset, patch_shape, stride_shape)
+            assert len(self.raw_slices) == len(self._weight_slices)
+
 class FilterSliceBuilder(SliceBuilder):
     """
     Filter patches containing more than `1 - threshold` of ignore_index label
