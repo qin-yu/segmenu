@@ -130,6 +130,29 @@ class DiceLoss(_AbstractDiceLoss):
         return compute_per_channel_dice(input, target, weight=self.weight)
 
 
+class MultiheadDiceLoss(_AbstractDiceLoss):
+    """Computes Dice Loss on each head according to https://arxiv.org/abs/1606.04797.
+    For multi-class segmentation `weight` parameter can be used to assign different weights per class.
+    The input to the loss function is assumed to be a logit and will be normalized by the Sigmoid function.
+    """
+
+    def __init__(self, weight=None, normalization='sigmoid'):
+        super().__init__(weight, normalization)
+
+    def dice(self, input, target, weight):
+        return compute_per_channel_dice(input, target, weight=self.weight)
+
+    def forward(self, input, target):
+        # get probabilities from logits
+        input = self.normalization(input)
+
+        # compute per channel Dice coefficient
+        per_channel_dice = self.dice(input, target, weight=self.weight)
+
+        # average Dice score across all channels/classes
+        return 1. - torch.mean(per_channel_dice)
+
+
 class GeneralizedDiceLoss(_AbstractDiceLoss):
     """Computes Generalized Dice Loss (GDL) as described in https://arxiv.org/pdf/1707.03237.pdf.
     """
