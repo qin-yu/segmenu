@@ -450,11 +450,12 @@ class MultiheadError:
         use_last_target (bool): use only the last channel from the target to compute the ARand
     """
 
-    def __init__(self, use_last_target=False, ignore_index=None, **kwargs):
+    def __init__(self, use_last_target=False, ignore_index=None, metrics=None, **kwargs):
         self.use_last_target = use_last_target
         self.ignore_index = ignore_index
+        self.metrics = metrics
 
-    def __call__(self, input, target):
+    def __call__(self, inputs, targets):
         """
         Compute ARand Error for each input, target pair in the batch and return the mean value.
 
@@ -466,49 +467,16 @@ class MultiheadError:
             average ARand Error across the batch
         """
 
-        def _arand_err(gt, seg):
-            n_seg = len(np.unique(seg))
-            if n_seg == 1:
-                return 0.
-            return adapted_rand_error(gt, seg)[0]
+        eval_scores = []
+        for metric_dict, input, target in zip(self.metrics, inputs, targets):
+            #    ^dict ,  ^list , ^list
+            metric_config = metric_dict
+            metric_class = _metric_class(metric_config['name'])
+            metric = metric_class(**metric_config)
+            eval_scores.append(metric(input, target))
+        return torch.sum(torch.stack(eval_scores))  #TODO: Maybe, metrics weight?
 
-        # converts input and target to numpy arrays
-        input, target = convert_to_numpy(input, target)
-        if self.use_last_target:
-            target = target[:, -1, ...]  # 4D
-        else:
-            # use 1st target channel
-            target = target[:, 0, ...]  # 4D
 
-        # ensure target is of integer type
-        target = target.astype(np.int)
-
-        if self.ignore_index is not None:
-            target[target == self.ignore_index] = 0
-
-        per_batch_arand = []
-        for _input, _target in zip(input, target):
-            n_clusters = len(np.unique(_target))
-            # skip ARand eval if there is only one label in the patch due to the zero-division error in Arand impl
-            # xxx/skimage/metrics/_adapted_rand_error.py:70: RuntimeWarning: invalid value encountered in double_scalars
-            # precision = sum_p_ij2 / sum_a2
-            if n_clusters == 1:
-                logger.info('Skipping ARandError computation: only 1 label present in the ground truth')
-                per_batch_arand.append(0.)
-                continue
-
-            # convert _input to segmentation CDHW
-            segm = self.input_to_segm(_input)
-            assert segm.ndim == 4
-
-            # compute per channel arand and return the minimum value
-            per_channel_arand = [_arand_err(_target, channel_segm) for channel_segm in segm]
-            per_batch_arand.append(np.min(per_channel_arand))
-
-        # return mean arand error
-        mean_arand = torch.mean(torch.tensor(per_batch_arand))
-        logger.info(f'ARand: {mean_arand.item()}')
-        return mean_arand
 
     def input_to_segm(self, input):
         """
@@ -522,17 +490,18 @@ class MultiheadError:
         return input
 
 
+def _metric_class(class_name):
+    m = importlib.import_module('pytorch3dunet.unet3d.metrics')
+    clazz = getattr(m, class_name)
+    return clazz
+
+
 def get_evaluation_metric(config):
     """
     Returns the evaluation metric function based on provided configuration
     :param config: (dict) a top level configuration object containing the 'eval_metric' key
     :return: an instance of the evaluation metric
     """
-
-    def _metric_class(class_name):
-        m = importlib.import_module('pytorch3dunet.unet3d.metrics')
-        clazz = getattr(m, class_name)
-        return clazz
 
     assert 'eval_metric' in config, 'Could not find evaluation metric configuration'
     metric_config = config['eval_metric']

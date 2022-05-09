@@ -131,15 +131,19 @@ class SliceBuilder:
 
 
 class MultiheadSliceBuilder(SliceBuilder):
-    def __init__(self, raw_dataset, label_dataset, weight_dataset, patch_shape, stride_shape, **kwargs):
+    """
+    This is currently useless because the slice builder for each label channel (cells, nuclei) should be the same.
+    """
+    def __init__(self, raw_dataset, label_datasets, weight_dataset, patch_shape, stride_shape, **kwargs):
         """
         :param raw_dataset: ndarray of raw data
-        :param label_dataset: ndarray of ground truth labels
+        :param label_dataset: list of ndarray of ground truth labels
         :param weight_dataset: ndarray of weights for the labels
         :param patch_shape: the shape of the patch DxHxW
         :param stride_shape: the shape of the stride DxHxW
         :param kwargs: additional metadata
         """
+        label_dataset = label_datasets[0]
 
         patch_shape = tuple(patch_shape)
         stride_shape = tuple(stride_shape)
@@ -148,7 +152,7 @@ class MultiheadSliceBuilder(SliceBuilder):
             self._check_patch_shape(patch_shape)
 
         self._raw_slices = self._build_slices(raw_dataset, patch_shape, stride_shape)
-        if label_dataset is None:
+        if label_dataset is None:  # FIXME: Maybe this can be None or []
             self._label_slices = None
         else:
             # take the first element in the label_dataset to build slices
@@ -159,6 +163,7 @@ class MultiheadSliceBuilder(SliceBuilder):
         else:
             self._weight_slices = self._build_slices(weight_dataset, patch_shape, stride_shape)
             assert len(self.raw_slices) == len(self._weight_slices)
+
 
 class FilterSliceBuilder(SliceBuilder):
     """

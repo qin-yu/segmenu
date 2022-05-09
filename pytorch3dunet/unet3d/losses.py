@@ -22,8 +22,9 @@ def compute_per_channel_dice(input, target, epsilon=1e-6, weight=None):
     # input and target shapes must match
     assert input.size() == target.size(), "'input' and 'target' must have the same shape"
 
-    input = flatten(input)
-    target = flatten(target)
+    # flatten (N, C, D, H, W) -> (C, N * D * H * W)
+    input = per_channel_flatten(input)
+    target = per_channel_flatten(target)
     target = target.float()
 
     # compute per channel Dice Coefficient
@@ -123,34 +124,29 @@ class DiceLoss(_AbstractDiceLoss):
     The input to the loss function is assumed to be a logit and will be normalized by the Sigmoid function.
     """
 
-    def __init__(self, weight=None, normalization='sigmoid'):
-        super().__init__(weight, normalization)
-
     def dice(self, input, target, weight):
         return compute_per_channel_dice(input, target, weight=self.weight)
 
 
-class MultiheadDiceLoss(_AbstractDiceLoss):
+class MultiheadDiceLoss(DiceLoss):
     """Computes Dice Loss on each head according to https://arxiv.org/abs/1606.04797.
     For multi-class segmentation `weight` parameter can be used to assign different weights per class.
     The input to the loss function is assumed to be a logit and will be normalized by the Sigmoid function.
     """
 
-    def __init__(self, weight=None, normalization='sigmoid'):
-        super().__init__(weight, normalization)
-
-    def dice(self, input, target, weight):
-        return compute_per_channel_dice(input, target, weight=self.weight)
-
-    def forward(self, input, target):
+    def forward(self, inputs, targets):
         # get probabilities from logits
-        input = self.normalization(input)
+        inputs = [self.normalization(input) for input in inputs]
 
         # compute per channel Dice coefficient
-        per_channel_dice = self.dice(input, target, weight=self.weight)
+        per_channel_dice_list = [
+            self.dice(input, target, weight=self.weight) for input, target in zip(inputs, targets)
+        ]
 
         # average Dice score across all channels/classes
-        return 1. - torch.mean(per_channel_dice)
+        losses = [1. - torch.mean(per_channel_dice) for per_channel_dice in per_channel_dice_list]
+
+        return torch.sum(torch.stack(losses))  #TODO: Maybe, head_weight?
 
 
 class GeneralizedDiceLoss(_AbstractDiceLoss):
@@ -164,8 +160,8 @@ class GeneralizedDiceLoss(_AbstractDiceLoss):
     def dice(self, input, target, weight):
         assert input.size() == target.size(), "'input' and 'target' must have the same shape"
 
-        input = flatten(input)
-        target = flatten(target)
+        input = per_channel_flatten(input)
+        target = per_channel_flatten(target)
         target = target.float()
 
         if input.size(0) == 1:
@@ -218,7 +214,7 @@ class WeightedCrossEntropyLoss(nn.Module):
     def _class_weights(input):
         # normalize the input first
         input = F.softmax(input, dim=1)
-        flattened = flatten(input)
+        flattened = per_channel_flatten(input)
         nominator = (1. - flattened).sum(-1)
         denominator = flattened.sum(-1)
         class_weights = Variable(nominator / denominator, requires_grad=False)
@@ -280,7 +276,7 @@ class WeightedSmoothL1Loss(nn.SmoothL1Loss):
         return l1.mean()
 
 
-def flatten(tensor):
+def per_channel_flatten(tensor):
     """Flattens a given tensor such that the channel axis is first.
     The shapes are transformed as follows:
        (N, C, D, H, W) -> (C, N * D * H * W)

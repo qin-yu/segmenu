@@ -198,8 +198,8 @@ class AbstractMultihead3DUNet(nn.Module):
 
     def __init__(self, in_channels, out_channels, final_sigmoid, basic_module, f_maps=64, layer_order='gcr',
                  num_groups=8, num_levels=4, is_segmentation=True, conv_kernel_size=3, pool_kernel_size=2,
-                 conv_padding=1, **kwargs):
-        super(Abstract3DUNet, self).__init__()
+                 conv_padding=1, out_heads=2, **kwargs):
+        super(AbstractMultihead3DUNet, self).__init__()
 
         if isinstance(f_maps, int):
             f_maps = number_of_features_per_level(f_maps, num_levels=num_levels)
@@ -212,19 +212,25 @@ class AbstractMultihead3DUNet(nn.Module):
                                         num_groups, pool_kernel_size)
 
         # create decoder path
-        self.decoders = create_decoders(f_maps, basic_module, conv_kernel_size, conv_padding, layer_order, num_groups,
-                                        upsample=True)
+        self.decoders = [create_decoders(f_maps,
+                                         basic_module,
+                                         conv_kernel_size,
+                                         conv_padding,
+                                         layer_order,
+                                         num_groups,
+                                         upsample=True
+                                         ) for i in range(out_heads)]
 
         # in the last layer a 1×1 convolution reduces the number of output
         # channels to the number of labels
-        self.final_conv = nn.Conv3d(f_maps[0], out_channels, 1)
+        self.final_conv = [nn.Conv3d(f_maps[0], out_channels, 1) for i in range(out_heads)]
 
         if is_segmentation:
             # semantic segmentation problem
             if final_sigmoid:
-                self.final_activation = nn.Sigmoid()
+                self.final_activation = [nn.Sigmoid() for i in range(out_heads)]
             else:
-                self.final_activation = nn.Softmax(dim=1)
+                self.final_activation = [nn.Softmax(dim=1) for i in range(out_heads)]
         else:
             # regression problem
             self.final_activation = None
@@ -242,21 +248,22 @@ class AbstractMultihead3DUNet(nn.Module):
         encoders_features = encoders_features[1:]
 
         # decoder part
-        for decoder, encoder_features in zip(self.decoders, encoders_features):
-            # pass the output from the corresponding encoder and the output
-            # of the previous decoder
-            x = decoder(encoder_features, x)
-
-        x = self.final_conv(x)
+        xs = []
+        for decoders in self.decoders:
+            for decoder, encoder_features in zip(decoders, encoders_features):
+                # pass the output from the corresponding encoder and the output
+                # of the previous decoder
+                x = decoder(encoder_features, x)
+            xs.append(self.final_conv(x))
 
         # apply final_activation (i.e. Sigmoid or Softmax) only during prediction. During training the network outputs logits
         if not self.training and self.final_activation is not None:
-            x = self.final_activation(x)
+            xs = [self.final_activation(x) for x in xs]
 
-        return x
+        return xs
 
 
-class UNet3D(AbstractMultihead3DUNet):
+class Multihead3DUNet(AbstractMultihead3DUNet):
     """
     3DUnet model from
     `"3D U-Net: Learning Dense Volumetric Segmentation from Sparse Annotation"
@@ -266,18 +273,19 @@ class UNet3D(AbstractMultihead3DUNet):
     """
 
     def __init__(self, in_channels, out_channels, final_sigmoid=True, f_maps=64, layer_order='gcr',
-                 num_groups=8, num_levels=4, is_segmentation=True, conv_padding=1, **kwargs):
-        super(UNet3D, self).__init__(in_channels=in_channels,
-                                     out_channels=out_channels,
-                                     final_sigmoid=final_sigmoid,
-                                     basic_module=DoubleConv,
-                                     f_maps=f_maps,
-                                     layer_order=layer_order,
-                                     num_groups=num_groups,
-                                     num_levels=num_levels,
-                                     is_segmentation=is_segmentation,
-                                     conv_padding=conv_padding,
-                                     **kwargs)
+                 num_groups=8, num_levels=4, is_segmentation=True, conv_padding=1, out_heads=2, **kwargs):
+        super(Multihead3DUNet, self).__init__(in_channels=in_channels,
+                                              out_channels=out_channels,
+                                              final_sigmoid=final_sigmoid,
+                                              basic_module=DoubleConv,
+                                              f_maps=f_maps,
+                                              layer_order=layer_order,
+                                              num_groups=num_groups,
+                                              num_levels=num_levels,
+                                              is_segmentation=is_segmentation,
+                                              conv_padding=conv_padding,
+                                              out_heads=out_heads,
+                                              **kwargs)
 
 
 def get_model(model_config):

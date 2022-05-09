@@ -215,14 +215,18 @@ class MultiheadHDF5Dataset(AbstractHDF5Dataset):
                  transformer_config,
                  mirror_padding=(16, 32, 32),
                  raw_internal_path='raw',
-                 label_internal_path='label',
+                 label_internal_path=['label/cells', 'label/nuclei'],
+                #  raw_internal_path_cells='raw/cells',
+                #  raw_internal_path_nuclei='raw/nuclei',
+                #  label_internal_path_cells='label/cells',
+                #  label_internal_path_nuclei='label/nuclei',
                  weight_internal_path=None,
                  global_normalization=True):
         """
         :param file_path: path to H5 file containing raw data as well as labels and per pixel weights (optional)
         :param phase: 'train' for training, 'val' for validation, 'test' for testing; data augmentation is performed
             only during the 'train' phase
-        :para'/home/adrian/workspace/ilastik-datasets/VolkerDeconv/train'm slice_builder_config: configuration of the SliceBuilder
+        :param slice_builder_config: configuration of the SliceBuilder
         :param transformer_config: data augmentation configuration
         :param mirror_padding (int or tuple): number of voxels padded to each axis
         :param raw_internal_path (str or list): H5 internal path to the raw dataset      # List is not implemented
@@ -258,7 +262,7 @@ class MultiheadHDF5Dataset(AbstractHDF5Dataset):
         if phase != 'test':
             # create label/weight transform only in train/val phase
             self.label_transform = self.transformer.label_transform()
-            self.label = self.fetch_and_check(input_file, label_internal_path)
+            self.label = [self.fetch_and_check(input_file, name) for name in label_internal_path]
 
             if weight_internal_path is not None:
                 # look for the weight map in the raw file
@@ -284,7 +288,7 @@ class MultiheadHDF5Dataset(AbstractHDF5Dataset):
                     self.raw = np.pad(self.raw, pad_width=pad_width, mode='reflect')
 
         # build slice indices for raw and label data sets
-        slice_builder = get_slice_builder(self.raw, self.label, self.weight_map, slice_builder_config)
+        slice_builder = get_slice_builder(self.raw, self.label[0], self.weight_map, slice_builder_config)
         self.raw_slices = slice_builder.raw_slices
         self.label_slices = slice_builder.label_slices
         self.weight_slices = slice_builder.weight_slices
@@ -309,13 +313,37 @@ class MultiheadHDF5Dataset(AbstractHDF5Dataset):
         else:
             # get the slice for a given index 'idx'
             label_idx = self.label_slices[idx]
-            label_patch_transformed = self.label_transform(self.label[label_idx])
+            label_patch_transformed = [self.label_transform(this_label[label_idx]) for this_label in self.label]
             if self.weight_map is not None:
                 weight_idx = self.weight_slices[idx]
                 weight_patch_transformed = self.weight_transform(self.weight_map[weight_idx])
                 return raw_patch_transformed, label_patch_transformed, weight_patch_transformed
             # return the transformed raw and label patches
-            return raw_patch_transformed, label_patch_transformed
+            return raw_patch_transformed, label_patch_transformed  # array, [array, ...]
+
+    @staticmethod
+    def _check_volume_sizes(raw, label):
+        """
+        In MultiheadHDF5Dataset class for multiple-head networks,
+        :param raw: is an array, but 
+        :param label: is a list of arrays.
+        """
+        def _volume_shape(volume):
+            if volume.ndim == 3:
+                return volume.shape
+            return volume.shape[1:]
+
+        # Dataset must be 3D (DxHxW) or 4D (CxDxHxW)
+        if not raw.ndim in [3, 4]:
+            raise ValueError('Raw dataset must be 3D (DxHxW) or 4D (CxDxHxW)')
+        if not all(dset.ndim in [3, 4] for dset in label):
+            raise ValueError('Label dataset must be 3D (DxHxW) or 4D (CxDxHxW)')
+
+        # Raw and labels have to be of the same size
+        channel_dim = _volume_shape(raw)
+        if not all(channel_dim == _volume_shape(dset) for dset in label):
+            raise ValueError('Raw and labels have to be of the same size')
+
 
 class StandardHDF5Dataset(AbstractHDF5Dataset):
     """
