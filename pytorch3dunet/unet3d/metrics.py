@@ -437,6 +437,91 @@ class MSE:
         return mean_squared_error(input, target)
 
 
+class MultiheadError:
+    """
+    A functor which computes an Adapted Rand error as defined by the SNEMI3D contest
+    (http://brainiac2.mit.edu/SNEMI3D/evaluation).
+
+    This is a generic implementation which takes the input, converts it to the segmentation image (see `input_to_segm()`)
+    and then computes the ARand between the segmentation and the ground truth target. Depending on one's use case
+    it's enough to extend this class and implement the `input_to_segm` method.
+
+    Args:
+        use_last_target (bool): use only the last channel from the target to compute the ARand
+    """
+
+    def __init__(self, use_last_target=False, ignore_index=None, **kwargs):
+        self.use_last_target = use_last_target
+        self.ignore_index = ignore_index
+
+    def __call__(self, input, target):
+        """
+        Compute ARand Error for each input, target pair in the batch and return the mean value.
+
+        Args:
+            input (torch.tensor): 5D (NCDHW) output from the network
+            target (torch.tensor): 4D (NDHW) ground truth segmentation
+
+        Returns:
+            average ARand Error across the batch
+        """
+
+        def _arand_err(gt, seg):
+            n_seg = len(np.unique(seg))
+            if n_seg == 1:
+                return 0.
+            return adapted_rand_error(gt, seg)[0]
+
+        # converts input and target to numpy arrays
+        input, target = convert_to_numpy(input, target)
+        if self.use_last_target:
+            target = target[:, -1, ...]  # 4D
+        else:
+            # use 1st target channel
+            target = target[:, 0, ...]  # 4D
+
+        # ensure target is of integer type
+        target = target.astype(np.int)
+
+        if self.ignore_index is not None:
+            target[target == self.ignore_index] = 0
+
+        per_batch_arand = []
+        for _input, _target in zip(input, target):
+            n_clusters = len(np.unique(_target))
+            # skip ARand eval if there is only one label in the patch due to the zero-division error in Arand impl
+            # xxx/skimage/metrics/_adapted_rand_error.py:70: RuntimeWarning: invalid value encountered in double_scalars
+            # precision = sum_p_ij2 / sum_a2
+            if n_clusters == 1:
+                logger.info('Skipping ARandError computation: only 1 label present in the ground truth')
+                per_batch_arand.append(0.)
+                continue
+
+            # convert _input to segmentation CDHW
+            segm = self.input_to_segm(_input)
+            assert segm.ndim == 4
+
+            # compute per channel arand and return the minimum value
+            per_channel_arand = [_arand_err(_target, channel_segm) for channel_segm in segm]
+            per_batch_arand.append(np.min(per_channel_arand))
+
+        # return mean arand error
+        mean_arand = torch.mean(torch.tensor(per_batch_arand))
+        logger.info(f'ARand: {mean_arand.item()}')
+        return mean_arand
+
+    def input_to_segm(self, input):
+        """
+        Converts input tensor (output from the network) to the segmentation image. E.g. if the input is the boundary
+        pmaps then one option would be to threshold it and run connected components in order to return the segmentation.
+
+        :param input: 4D tensor (CDHW)
+        :return: segmentation volume either 4D (segmentation per channel)
+        """
+        # by deafult assume that input is a segmentation volume itself
+        return input
+
+
 def get_evaluation_metric(config):
     """
     Returns the evaluation metric function based on provided configuration
