@@ -321,8 +321,6 @@ class StandardLabelToBoundary:
         self.foreground = foreground
 
     def __call__(self, m):
-        assert m.ndim == 3
-
         boundaries = find_boundaries(m, connectivity=2, mode=self.mode)
         boundaries = boundaries.astype('int32')
 

@@ -216,10 +216,10 @@ class MultiheadHDF5Dataset(AbstractHDF5Dataset):
                  mirror_padding=(16, 32, 32),
                  raw_internal_path='raw',
                  label_internal_path=['label/cells', 'label/nuclei'],
-                #  raw_internal_path_cells='raw/cells',
-                #  raw_internal_path_nuclei='raw/nuclei',
-                #  label_internal_path_cells='label/cells',
-                #  label_internal_path_nuclei='label/nuclei',
+                 #  raw_internal_path_cells='raw/cells',
+                 #  raw_internal_path_nuclei='raw/nuclei',
+                 #  label_internal_path_cells='label/cells',
+                 #  label_internal_path_nuclei='label/nuclei',
                  weight_internal_path=None,
                  global_normalization=True):
         """
@@ -319,13 +319,13 @@ class MultiheadHDF5Dataset(AbstractHDF5Dataset):
                 weight_patch_transformed = self.weight_transform(self.weight_map[weight_idx])
                 return raw_patch_transformed, label_patch_transformed, weight_patch_transformed
             # return the transformed raw and label patches
-            return raw_patch_transformed, label_patch_transformed  # array, [array, ...]
+            return raw_patch_transformed, label_patch_transformed  # tensor, [tensor, ...]
 
     @staticmethod
     def _check_volume_sizes(raw, label):
         """
         In MultiheadHDF5Dataset class for multiple-head networks,
-        :param raw: is an array, but 
+        :param raw: is an array, but
         :param label: is a list of arrays.
         """
         def _volume_shape(volume):
@@ -343,6 +343,10 @@ class MultiheadHDF5Dataset(AbstractHDF5Dataset):
         channel_dim = _volume_shape(raw)
         if not all(channel_dim == _volume_shape(dset) for dset in label):
             raise ValueError('Raw and labels have to be of the same size')
+
+    @staticmethod
+    def create_h5_file(file_path):
+        return h5py.File(file_path, 'r')
 
 
 class StandardHDF5Dataset(AbstractHDF5Dataset):

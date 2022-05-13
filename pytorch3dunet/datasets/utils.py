@@ -132,8 +132,9 @@ class SliceBuilder:
 
 class MultiheadSliceBuilder(SliceBuilder):
     """
-    This is currently useless because the slice builder for each label channel (cells, nuclei) should be the same.
+    This is currently USELESS because the slice builder for each label channel (cells, nuclei) should be the same.
     """
+
     def __init__(self, raw_dataset, label_datasets, weight_dataset, patch_shape, stride_shape, **kwargs):
         """
         :param raw_dataset: ndarray of raw data
@@ -143,7 +144,9 @@ class MultiheadSliceBuilder(SliceBuilder):
         :param stride_shape: the shape of the stride DxHxW
         :param kwargs: additional metadata
         """
-        label_dataset = label_datasets[0]
+
+        # slice builder assumes all labels has the same dimension
+        label_dataset = label_datasets[0]  # TODO: Assersion?
 
         patch_shape = tuple(patch_shape)
         stride_shape = tuple(stride_shape)
@@ -246,9 +249,9 @@ def get_train_loaders(config):
     batch_size = loaders_config.get('batch_size', 1)
     if torch.cuda.device_count() > 1 and not config['device'].type == 'cpu':
         logger.info(
-            f'{torch.cuda.device_count()} GPUs available. Using batch_size = {torch.cuda.device_count()} * {batch_size}')
+            f'{torch.cuda.device_count()} GPUs available. Using batch_size = {torch.cuda.device_count()} * {batch_size}'
+        )
         batch_size = batch_size * torch.cuda.device_count()
-
     logger.info(f'Batch size for train/val loader: {batch_size}')
     # when training with volumetric data use batch_size of 1 due to GPU memory constraints
     return {

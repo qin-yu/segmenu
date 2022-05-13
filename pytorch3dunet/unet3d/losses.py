@@ -124,7 +124,7 @@ class DiceLoss(_AbstractDiceLoss):
     The input to the loss function is assumed to be a logit and will be normalized by the Sigmoid function.
     """
 
-    def dice(self, input, target, weight):
+    def dice(self, input, target, weight):  # FIXME: weight no used here.
         return compute_per_channel_dice(input, target, weight=self.weight)
 
 
@@ -146,7 +146,7 @@ class MultiheadDiceLoss(DiceLoss):
         # average Dice score across all channels/classes
         losses = [1. - torch.mean(per_channel_dice) for per_channel_dice in per_channel_dice_list]
 
-        return torch.sum(torch.stack(losses))  #TODO: Maybe, head_weight?
+        return torch.sum(torch.stack(losses))  # TODO: Maybe, head_weight?
 
 
 class GeneralizedDiceLoss(_AbstractDiceLoss):
@@ -351,6 +351,9 @@ def _create_loss(name, loss_config, weight, ignore_index, pos_weight):
     elif name == 'DiceLoss':
         normalization = loss_config.get('normalization', 'sigmoid')
         return DiceLoss(weight=weight, normalization=normalization)
+    elif name == 'MultiheadDiceLoss':
+        normalization = loss_config.get('normalization', 'sigmoid')
+        return MultiheadDiceLoss(weight=weight, normalization=normalization)
     elif name == 'MSELoss':
         return MSELoss()
     elif name == 'SmoothL1Loss':

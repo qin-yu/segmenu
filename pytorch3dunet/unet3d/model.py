@@ -249,12 +249,15 @@ class AbstractMultihead3DUNet(nn.Module):
 
         # decoder part
         xs = []
-        for decoders in self.decoders:
+        for decoders, final_conv in zip(self.decoders, self.final_conv):
             for decoder, encoder_features in zip(decoders, encoders_features):
                 # pass the output from the corresponding encoder and the output
                 # of the previous decoder
+                decoder = decoder.to("cuda:0")  # FIXME: why do I have to manually put it there??
                 x = decoder(encoder_features, x)
-            xs.append(self.final_conv(x))
+            final_conv = final_conv.to("cuda:0")
+            x = final_conv(x)
+            xs.append(x)
 
         # apply final_activation (i.e. Sigmoid or Softmax) only during prediction. During training the network outputs logits
         if not self.training and self.final_activation is not None:
@@ -283,6 +286,31 @@ class Multihead3DUNet(AbstractMultihead3DUNet):
                                               num_groups=num_groups,
                                               num_levels=num_levels,
                                               is_segmentation=is_segmentation,
+                                              conv_padding=conv_padding,
+                                              out_heads=out_heads,
+                                              **kwargs)
+
+
+class Multihead2DUNet(AbstractMultihead3DUNet):
+    """
+    Just a standard 2D Unet. Arises naturally by specifying conv_kernel_size=(1, 3, 3), pool_kernel_size=(1, 2, 2).
+    """
+
+    def __init__(self, in_channels, out_channels, final_sigmoid=True, f_maps=64, layer_order='gcr',
+                 num_groups=8, num_levels=4, is_segmentation=True, conv_padding=1, out_heads=2, **kwargs):
+        if conv_padding == 1:
+            conv_padding = (0, 1, 1)
+        super(Multihead2DUNet, self).__init__(in_channels=in_channels,
+                                              out_channels=out_channels,
+                                              final_sigmoid=final_sigmoid,
+                                              basic_module=DoubleConv,
+                                              f_maps=f_maps,
+                                              layer_order=layer_order,
+                                              num_groups=num_groups,
+                                              num_levels=num_levels,
+                                              is_segmentation=is_segmentation,
+                                              conv_kernel_size=(1, 3, 3),
+                                              pool_kernel_size=(1, 2, 2),
                                               conv_padding=conv_padding,
                                               out_heads=out_heads,
                                               **kwargs)
