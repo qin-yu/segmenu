@@ -201,6 +201,8 @@ class AbstractMultihead3DUNet(nn.Module):
                  conv_padding=1, out_heads=2, **kwargs):
         super(AbstractMultihead3DUNet, self).__init__()
 
+        print(f"NUMBER OF HEADS: {out_heads}")
+
         if isinstance(f_maps, int):
             f_maps = number_of_features_per_level(f_maps, num_levels=num_levels)
 
@@ -212,25 +214,22 @@ class AbstractMultihead3DUNet(nn.Module):
                                         num_groups, pool_kernel_size)
 
         # create decoder path
-        self.decoders = [create_decoders(f_maps,
-                                         basic_module,
-                                         conv_kernel_size,
-                                         conv_padding,
-                                         layer_order,
-                                         num_groups,
-                                         upsample=True
-                                         ) for i in range(out_heads)]
+        self.decoders = nn.ModuleList(
+            [create_decoders(
+                f_maps, basic_module, conv_kernel_size, conv_padding, layer_order, num_groups, upsample=True
+            ) for i in range(out_heads)]
+        )
 
         # in the last layer a 1×1 convolution reduces the number of output
         # channels to the number of labels
-        self.final_conv = [nn.Conv3d(f_maps[0], out_channels, 1) for i in range(out_heads)]
+        self.final_conv = nn.ModuleList([nn.Conv3d(f_maps[0], out_channels, 1) for i in range(out_heads)])
 
         if is_segmentation:
             # semantic segmentation problem
             if final_sigmoid:
-                self.final_activation = [nn.Sigmoid() for i in range(out_heads)]
+                self.final_activation = nn.ModuleList([nn.Sigmoid() for i in range(out_heads)])
             else:
-                self.final_activation = [nn.Softmax(dim=1) for i in range(out_heads)]
+                self.final_activation = nn.ModuleList([nn.Softmax(dim=1) for i in range(out_heads)])
         else:
             # regression problem
             self.final_activation = None
@@ -253,11 +252,8 @@ class AbstractMultihead3DUNet(nn.Module):
             for decoder, encoder_features in zip(decoders, encoders_features):
                 # pass the output from the corresponding encoder and the output
                 # of the previous decoder
-                decoder = decoder.to("cuda:0")  # FIXME: why do I have to manually put it there??
-                x = decoder(encoder_features, x)
-            final_conv = final_conv.to("cuda:0")
-            x = final_conv(x)
-            xs.append(x)
+                x_decoded = decoder(encoder_features, x)
+            xs.append(final_conv(x_decoded))
 
         # apply final_activation (i.e. Sigmoid or Softmax) only during prediction. During training the network outputs logits
         if not self.training and self.final_activation is not None:
