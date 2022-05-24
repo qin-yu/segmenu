@@ -296,7 +296,7 @@ class UNet3DTrainer:
         t = _move_to_device(t)
         weight = None
         if len(t) == 2:
-            input, target = t
+            input, target = t  # t is from PyTorch Dataloaders, which in turn is from (Multihead)HDF5Dataset
         else:
             input, target, weight = t
         return input, target, weight

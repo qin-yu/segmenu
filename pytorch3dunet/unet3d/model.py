@@ -252,8 +252,8 @@ class AbstractMultihead3DUNet(nn.Module):
             for decoder, encoder_features in zip(decoders, encoders_features):
                 # pass the output from the corresponding encoder and the output
                 # of the previous decoder
-                x_decoded = decoder(encoder_features, x)
-            xs.append(final_conv(x_decoded))
+                x = decoder(encoder_features, x)
+            xs.append(final_conv(x))
 
         # apply final_activation (i.e. Sigmoid or Softmax) only during prediction. During training the network outputs logits
         if not self.training and self.final_activation is not None:

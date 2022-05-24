@@ -71,14 +71,16 @@ class SkipLastTargetChannelWrapper(nn.Module):
         self.squeeze_channel = squeeze_channel
 
     def forward(self, input, target):
-        assert target.size(1) > 1, 'Target tensor has a singleton channel dimension, cannot remove channel'
-
-        # skips last target channel if needed
-        target = target[:, :-1, ...]
-
-        if self.squeeze_channel:
-            # squeeze channel dimension if singleton
-            target = torch.squeeze(target, dim=1)
+        if isinstance(target, torch.Tensor):
+            assert target.size(1) > 1, 'Target tensor has a singleton channel dimension, cannot remove channel'
+            target = target[:, :-1, ...]  # skips last target channel if needed
+            if self.squeeze_channel:  # squeeze channel dimension if singleton
+                target = torch.squeeze(target, dim=1)
+        else:
+            assert target[0].size(1) > 1, 'Target tensor has a singleton channel dimension, cannot remove channel'
+            target = [this_target[:, :-1, ...] for this_target in target]
+            if self.squeeze_channel:  # squeeze channel dimension if singleton
+                target = [torch.squeeze(this_target, dim=1) for this_target in target]
         return self.loss(input, target)
 
 
