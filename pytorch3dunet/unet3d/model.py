@@ -1,3 +1,4 @@
+from re import X
 import torch.nn as nn
 
 from pytorch3dunet.unet3d.buildingblocks import DoubleConv, ExtResNetBlock, create_encoders, \
@@ -249,11 +250,11 @@ class AbstractMultihead3DUNet(nn.Module):
         # decoder part
         xs = []
         for decoders, final_conv in zip(self.decoders, self.final_conv):
-            for decoder, encoder_features in zip(decoders, encoders_features):
-                # pass the output from the corresponding encoder and the output
-                # of the previous decoder
-                x = decoder(encoder_features, x)
-            xs.append(final_conv(x))
+            x_for_this_head = decoders[0](encoders_features[0], x)  # make new variable to avoid changing x
+            for decoder, encoder_features in zip(decoders[1:], encoders_features[1:]):
+                x_for_this_head = decoder(encoder_features, x_for_this_head)
+                # pass the output from the corresponding encoder and the output of the previous decoder
+            xs.append(final_conv(x_for_this_head))
 
         # apply final_activation (i.e. Sigmoid or Softmax) only during prediction. During training the network outputs logits
         if not self.training and self.final_activation is not None:
