@@ -258,7 +258,7 @@ class AbstractMultihead3DUNet(nn.Module):
 
         # apply final_activation (i.e. Sigmoid or Softmax) only during prediction. During training the network outputs logits
         if not self.training and self.final_activation is not None:
-            xs = [self.final_activation(x) for x in xs]
+            xs = [final_activation(x) for final_activation, x in zip(self.final_activation, xs)]
 
         return xs
 
