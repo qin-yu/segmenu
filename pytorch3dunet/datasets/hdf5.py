@@ -256,12 +256,13 @@ class MultiheadHDF5Dataset(AbstractHDF5Dataset):
         else:
             stats = {'pmin': None, 'pmax': None, 'mean': None, 'std': None}
 
-        self.transformer = transforms.Transformer(transformer_config, stats)
+        # FIXME: Here number of label transformer is infered by list length, may be a bad idea
+        self.transformer = transforms.MultiheadTransformer(transformer_config, stats, out_heads=len(label_internal_path))
         self.raw_transform = self.transformer.raw_transform()
 
         if phase != 'test':
             # create label/weight transform only in train/val phase
-            self.label_transform = self.transformer.label_transform()
+            self.label_transforms = self.transformer.label_transform()
             self.label = [self.fetch_and_check(input_file, name) for name in label_internal_path]
 
             if weight_internal_path is not None:
@@ -313,7 +314,7 @@ class MultiheadHDF5Dataset(AbstractHDF5Dataset):
         else:
             # get the slice for a given index 'idx'
             label_idx = self.label_slices[idx]
-            label_patch_transformed = [self.label_transform(this_label[label_idx]) for this_label in self.label]
+            label_patch_transformed = [label_transform(this_label[label_idx]) for label_transform, this_label in zip(self.label_transforms, self.label)]
             if self.weight_map is not None:
                 weight_idx = self.weight_slices[idx]
                 weight_patch_transformed = self.weight_transform(self.weight_map[weight_idx])

@@ -768,16 +768,17 @@ def _recover_ignore_index(input, orig, ignore_index):
 
 
 class MultiheadTransformer:
-    def __init__(self, phase_config, base_config):
+    def __init__(self, phase_config, base_config, out_heads):
         self.phase_config = phase_config
         self.config_base = base_config
         self.seed = GLOBAL_RANDOM_STATE.randint(10000000)
+        self.out_heads = out_heads
 
     def raw_transform(self):
         return self._create_transform('raw')
 
     def label_transform(self):
-        return self._create_transform('label')
+        return [self._create_transform('label') for i in range(self.out_heads)]
 
     def weight_transform(self):
         return self._create_transform('weight')
