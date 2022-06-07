@@ -765,3 +765,46 @@ def _recover_ignore_index(input, orig, ignore_index):
         input[mask] = ignore_index
 
     return input
+
+
+class MultiheadTransformer:
+    def __init__(self, phase_config, base_config):
+        self.phase_config = phase_config
+        self.config_base = base_config
+        self.seed = GLOBAL_RANDOM_STATE.randint(10000000)
+
+    def raw_transform(self):
+        return self._create_transform('raw')
+
+    def label_transform(self):
+        return self._create_transform('label')
+
+    def weight_transform(self):
+        return self._create_transform('weight')
+
+    @staticmethod
+    def _transformer_class(class_name):
+        m = importlib.import_module('pytorch3dunet.augment.transforms')
+        clazz = getattr(m, class_name)
+        return clazz
+
+    def _create_transform(self, name):
+        assert name in self.phase_config, f'Could not find {name} transform'
+        return Compose([
+            self._create_augmentation(c) for c in self.phase_config[name]
+        ])
+
+    def _create_augmentation(self, c):
+        config = dict(self.config_base)
+        config.update(c)
+        config['random_state'] = np.random.RandomState(self.seed)
+        aug_class = self._transformer_class(config['name'])
+        return aug_class(**config)
+
+
+def _recover_ignore_index(input, orig, ignore_index):
+    if ignore_index is not None:
+        mask = orig == ignore_index
+        input[mask] = ignore_index
+
+    return input
