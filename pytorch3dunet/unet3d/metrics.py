@@ -437,17 +437,71 @@ class MSE:
         return mean_squared_error(input, target)
 
 
+class MultiheadError:
+    """
+    A functor which computes an Adapted Rand error as defined by the SNEMI3D contest
+    (http://brainiac2.mit.edu/SNEMI3D/evaluation).
+
+    This is a generic implementation which takes the input, converts it to the segmentation image (see `input_to_segm()`)
+    and then computes the ARand between the segmentation and the ground truth target. Depending on one's use case
+    it's enough to extend this class and implement the `input_to_segm` method.
+
+    Args:
+        use_last_target (bool): use only the last channel from the target to compute the ARand
+    """
+
+    def __init__(self, use_last_target=False, ignore_index=None, metrics=None, **kwargs):
+        self.use_last_target = use_last_target
+        self.ignore_index = ignore_index
+        self.metrics = metrics
+
+    def __call__(self, inputs, targets):
+        """
+        Compute ARand Error for each input, target pair in the batch and return the mean value.
+
+        Args:
+            input (torch.tensor): 5D (NCDHW) output from the network
+            target (torch.tensor): 4D (NDHW) ground truth segmentation
+
+        Returns:
+            average ARand Error across the batch
+        """
+
+        eval_scores = []
+        for metric_dict, input, target in zip(self.metrics, inputs, targets):
+            #    ^dict ,  ^list , ^list
+            metric_config = metric_dict
+            metric_class = _metric_class(metric_config['name'])
+            metric = metric_class(**metric_config)
+            eval_scores.append(metric(input, target))
+        return torch.sum(torch.stack(eval_scores))  #TODO: Maybe, metrics weight?
+
+
+
+    def input_to_segm(self, input):
+        """
+        Converts input tensor (output from the network) to the segmentation image. E.g. if the input is the boundary
+        pmaps then one option would be to threshold it and run connected components in order to return the segmentation.
+
+        :param input: 4D tensor (CDHW)
+        :return: segmentation volume either 4D (segmentation per channel)
+        """
+        # by deafult assume that input is a segmentation volume itself
+        return input
+
+
+def _metric_class(class_name):
+    m = importlib.import_module('pytorch3dunet.unet3d.metrics')
+    clazz = getattr(m, class_name)
+    return clazz
+
+
 def get_evaluation_metric(config):
     """
     Returns the evaluation metric function based on provided configuration
     :param config: (dict) a top level configuration object containing the 'eval_metric' key
     :return: an instance of the evaluation metric
     """
-
-    def _metric_class(class_name):
-        m = importlib.import_module('pytorch3dunet.unet3d.metrics')
-        clazz = getattr(m, class_name)
-        return clazz
 
     assert 'eval_metric' in config, 'Could not find evaluation metric configuration'
     metric_config = config['eval_metric']

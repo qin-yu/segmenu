@@ -130,6 +130,44 @@ class SliceBuilder:
         assert patch_shape[1] >= 64 and patch_shape[2] >= 64, 'Height and Width must be greater or equal 64'
 
 
+class MultiheadSliceBuilder(SliceBuilder):
+    """
+    This is currently USELESS because the slice builder for each label channel (cells, nuclei) should be the same.
+    """
+
+    def __init__(self, raw_dataset, label_datasets, weight_dataset, patch_shape, stride_shape, **kwargs):
+        """
+        :param raw_dataset: ndarray of raw data
+        :param label_dataset: list of ndarray of ground truth labels
+        :param weight_dataset: ndarray of weights for the labels
+        :param patch_shape: the shape of the patch DxHxW
+        :param stride_shape: the shape of the stride DxHxW
+        :param kwargs: additional metadata
+        """
+
+        # slice builder assumes all labels has the same dimension
+        label_dataset = label_datasets[0]  # TODO: Assersion?
+
+        patch_shape = tuple(patch_shape)
+        stride_shape = tuple(stride_shape)
+        skip_shape_check = kwargs.get('skip_shape_check', False)
+        if not skip_shape_check:
+            self._check_patch_shape(patch_shape)
+
+        self._raw_slices = self._build_slices(raw_dataset, patch_shape, stride_shape)
+        if label_dataset is None:  # FIXME: Maybe this can be None or []
+            self._label_slices = None
+        else:
+            # take the first element in the label_dataset to build slices
+            self._label_slices = self._build_slices(label_dataset, patch_shape, stride_shape)
+            assert len(self._raw_slices) == len(self._label_slices)
+        if weight_dataset is None:
+            self._weight_slices = None
+        else:
+            self._weight_slices = self._build_slices(weight_dataset, patch_shape, stride_shape)
+            assert len(self.raw_slices) == len(self._weight_slices)
+
+
 class FilterSliceBuilder(SliceBuilder):
     """
     Filter patches containing more than `1 - threshold` of ignore_index label
@@ -211,9 +249,9 @@ def get_train_loaders(config):
     batch_size = loaders_config.get('batch_size', 1)
     if torch.cuda.device_count() > 1 and not config['device'].type == 'cpu':
         logger.info(
-            f'{torch.cuda.device_count()} GPUs available. Using batch_size = {torch.cuda.device_count()} * {batch_size}')
+            f'{torch.cuda.device_count()} GPUs available. Using batch_size = {torch.cuda.device_count()} * {batch_size}'
+        )
         batch_size = batch_size * torch.cuda.device_count()
-
     logger.info(f'Batch size for train/val loader: {batch_size}')
     # when training with volumetric data use batch_size of 1 due to GPU memory constraints
     return {

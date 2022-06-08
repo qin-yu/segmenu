@@ -108,7 +108,9 @@ class UNet3DTrainer:
                  validate_iters=None, num_iterations=1, num_epoch=0,
                  eval_score_higher_is_better=True,
                  tensorboard_formatter=None, skip_train_validation=False,
-                 resume=None, pre_trained=None, **kwargs):
+                 resume=None, pre_trained=None,
+                 multihead_wnb_logger=True,  # TODO: is there a better
+                 **kwargs):
 
         self.model = model
         self.optimizer = optimizer
@@ -142,6 +144,8 @@ class UNet3DTrainer:
         self.num_iterations = num_iterations
         self.num_epochs = num_epoch
         self.skip_train_validation = skip_train_validation
+
+        self.multihead_wnb_logger = multihead_wnb_logger
 
         if resume is not None:
             logger.info(f"Loading checkpoint '{resume}'...")
@@ -286,7 +290,7 @@ class UNet3DTrainer:
             logger.info(f'Validation finished. Loss: {val_losses.avg}. Evaluation score: {val_scores.avg}')
             return val_scores.avg
 
-    def _split_training_batch(self, t):
+    def _split_training_batch(self, t):  # separate into input/target/(weight)
         def _move_to_device(input):
             if isinstance(input, tuple) or isinstance(input, list):
                 return tuple([_move_to_device(x) for x in input])
@@ -296,7 +300,7 @@ class UNet3DTrainer:
         t = _move_to_device(t)
         weight = None
         if len(t) == 2:
-            input, target = t
+            input, target = t  # t is from PyTorch Dataloaders, which in turn is from (Multihead)HDF5Dataset
         else:
             input, target, weight = t
         return input, target, weight
@@ -366,11 +370,19 @@ class UNet3DTrainer:
             self.writer.add_histogram(name + '/grad', value.grad.data.cpu().numpy(), self.num_iterations)
 
     def _log_images(self, input, target, prediction, prefix=''):
-        inputs_map = {
-            'inputs': input,
-            'targets': target,
-            'predictions': prediction
-        }
+        if self.multihead_wnb_logger:
+            inputs_map = {'inputs': input}
+            for i, t in enumerate(target):
+                inputs_map[f'decoder{i}_targets'] = t
+            for i, p in enumerate(prediction):
+                inputs_map[f'decoder{i}_predictions'] = p
+        else:
+            inputs_map = {
+                'inputs': input,
+                'targets': target,
+                'predictions': prediction
+            }
+
         img_sources = {}
         for name, batch in inputs_map.items():
             if isinstance(batch, list) or isinstance(batch, tuple):
@@ -381,61 +393,20 @@ class UNet3DTrainer:
 
         img_wandb = []
         for name, batch in img_sources.items():
-            for tag, image in self.tensorboard_formatter(name, batch):
-                self.writer.add_image(prefix + tag, image, self.num_iterations, dataformats='CHW')
-                image = np.transpose(image, (1, 2, 0))
-                img_wandb.append(image)  # img_wandb = [input0, ... , inputN, target0, ... , targetN, pred0, ... , predN]
-                # wandb.log({prefix + tag: wandb.Image(image)}, step=self.num_iterations)
+            tagged_images_list = self.tensorboard_formatter(name, batch)
+            for tagged_images in tagged_images_list:
+                for tag, image in tagged_images:
+                    self.writer.add_image(prefix + tag, image, self.num_iterations, dataformats='CHW')
+            img_wandb += tagged_images_list
 
-        # Concatenate raw, label and prediction respectively into 3 columns then into a grid:
-        # img_cols = [np.vstack(img_wandb[len(input)*i:len(input)*(i+1)]) for i in range(len(inputs_map))]
-        # img_grid = np.hstack(img_cols)
-        # wandb.log({prefix + "all": wandb.Image(img_grid)}, step=self.num_iterations)
-
-        # Log each raw, label and prediction pair separately:
         n_patch = len(input)
         id_width = len(str(n_patch))
-        if len(img_wandb) == 3 * len(input):  # Raw, Label, Pred
-            for i in range(n_patch):
-                img_row = np.hstack([img_wandb[n_patch * j + i] for j in range(len(inputs_map))])
-                wandb.log({prefix + f"{i:0{id_width}d}": wandb.Image(img_row)}, step=self.num_iterations)
-        elif len(img_wandb) == 5 * n_patch:  # Raw, GT, Pred, GT, Pred 
-            for i in range(n_patch):
-                img_row = np.hstack([
-                    # [r0, r1, ..., r24, l0.0, l0.1, l1.0, l1.1, ..., l24.0, l24.1, p0.0, p0.1, ..., p24.0, p24.1]
-                    img_wandb[0*n_patch + 1*i],
-                    img_wandb[1*n_patch + 2*i],     img_wandb[3*n_patch + 2*i],
-                    img_wandb[1*n_patch + 2*i + 1], img_wandb[3*n_patch + 2*i + 1],
-                ])
-                wandb.log(
-                    {prefix + f"{i:0{id_width}d}": wandb.Image(img_row, caption = "Raw, GT, Pred, GT, Pred")},
-                    step=self.num_iterations
-                )
-        elif len(img_wandb) == 6 * n_patch:  # C1, C2, GT, Pred, GT, Pred
-            for i in range(n_patch):
-                img_row = np.hstack([
-                    img_wandb[0*n_patch + 2*i],     img_wandb[0*n_patch + 2*i + 1],
-                    img_wandb[2*n_patch + 2*i],     img_wandb[4*n_patch + 2*i],
-                    img_wandb[2*n_patch + 2*i + 1], img_wandb[4*n_patch + 2*i + 1],
-                ])
-                wandb.log(
-                    {prefix + f"{i:0{id_width}d}": wandb.Image(img_row, caption = "C1, C2, GT, Pred, GT, Pred")}, 
-                    step=self.num_iterations
-                )
-        elif len(img_wandb) == 8 * n_patch:  # C1, C2, GT, Pred, GT, Pred, GT, Pred
-            for i in range(n_patch):
-                img_row = np.hstack([
-                    img_wandb[0*n_patch + 2*i],     img_wandb[0*n_patch + 2*i + 1],
-                    img_wandb[2*n_patch + 3*i],     img_wandb[5*n_patch + 3*i],
-                    img_wandb[2*n_patch + 3*i + 1], img_wandb[5*n_patch + 3*i + 1],
-                    img_wandb[2*n_patch + 3*i + 2], img_wandb[5*n_patch + 3*i + 2],
-                ])
-                wandb.log(
-                    {prefix + f"{i:0{id_width}d}": wandb.Image(img_row, caption = "C1, C2, GT, Pred, GT, Pred, GT, Pred")}, 
-                    step=self.num_iterations
-                )
-        else:
-            raise NotImplementedError
+        for i in range(n_patch):
+            this_tag_n_image_batch = [tag_n_image_batch[i] for tag_n_image_batch in img_wandb]
+            this_tag_batch, this_image_batch = list(zip(*this_tag_n_image_batch))
+            img_row = np.hstack([np.transpose(image, (1, 2, 0)) for image in this_image_batch])
+            tag_row = ', '.join(this_tag_batch)
+            wandb.log({prefix + f"{i:0{id_width}d}": wandb.Image(img_row, caption=tag_row)}, step=self.num_iterations)
 
     @staticmethod
     def _batch_size(input):

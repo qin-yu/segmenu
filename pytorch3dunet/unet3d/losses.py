@@ -22,8 +22,9 @@ def compute_per_channel_dice(input, target, epsilon=1e-6, weight=None):
     # input and target shapes must match
     assert input.size() == target.size(), "'input' and 'target' must have the same shape"
 
-    input = flatten(input)
-    target = flatten(target)
+    # flatten (N, C, D, H, W) -> (C, N * D * H * W)
+    input = per_channel_flatten(input)
+    target = per_channel_flatten(target)
     target = target.float()
 
     # compute per channel Dice Coefficient
@@ -70,14 +71,16 @@ class SkipLastTargetChannelWrapper(nn.Module):
         self.squeeze_channel = squeeze_channel
 
     def forward(self, input, target):
-        assert target.size(1) > 1, 'Target tensor has a singleton channel dimension, cannot remove channel'
-
-        # skips last target channel if needed
-        target = target[:, :-1, ...]
-
-        if self.squeeze_channel:
-            # squeeze channel dimension if singleton
-            target = torch.squeeze(target, dim=1)
+        if isinstance(target, torch.Tensor):
+            assert target.size(1) > 1, 'Target tensor has a singleton channel dimension, cannot remove channel'
+            target = target[:, :-1, ...]  # skips last target channel if needed
+            if self.squeeze_channel:  # squeeze channel dimension if singleton
+                target = torch.squeeze(target, dim=1)
+        else:
+            assert target[0].size(1) > 1, 'Target tensor has a singleton channel dimension, cannot remove channel'
+            target = [this_target[:, :-1, ...] for this_target in target]
+            if self.squeeze_channel:  # squeeze channel dimension if singleton
+                target = [torch.squeeze(this_target, dim=1) for this_target in target]
         return self.loss(input, target)
 
 
@@ -123,11 +126,29 @@ class DiceLoss(_AbstractDiceLoss):
     The input to the loss function is assumed to be a logit and will be normalized by the Sigmoid function.
     """
 
-    def __init__(self, weight=None, normalization='sigmoid'):
-        super().__init__(weight, normalization)
-
-    def dice(self, input, target, weight):
+    def dice(self, input, target, weight):  # FIXME: weight no used here.
         return compute_per_channel_dice(input, target, weight=self.weight)
+
+
+class MultiheadDiceLoss(DiceLoss):
+    """Computes Dice Loss on each head according to https://arxiv.org/abs/1606.04797.
+    For multi-class segmentation `weight` parameter can be used to assign different weights per class.
+    The input to the loss function is assumed to be a logit and will be normalized by the Sigmoid function.
+    """
+
+    def forward(self, inputs, targets):
+        # get probabilities from logits
+        inputs = [self.normalization(input) for input in inputs]
+
+        # compute per channel Dice coefficient
+        per_channel_dice_list = [
+            self.dice(input, target, weight=self.weight) for input, target in zip(inputs, targets)
+        ]
+
+        # average Dice score across all channels/classes
+        losses = [1. - torch.mean(per_channel_dice) for per_channel_dice in per_channel_dice_list]
+
+        return torch.sum(torch.stack(losses))  # TODO: Maybe, head_weight?
 
 
 class GeneralizedDiceLoss(_AbstractDiceLoss):
@@ -141,8 +162,8 @@ class GeneralizedDiceLoss(_AbstractDiceLoss):
     def dice(self, input, target, weight):
         assert input.size() == target.size(), "'input' and 'target' must have the same shape"
 
-        input = flatten(input)
-        target = flatten(target)
+        input = per_channel_flatten(input)
+        target = per_channel_flatten(target)
         target = target.float()
 
         if input.size(0) == 1:
@@ -195,7 +216,7 @@ class WeightedCrossEntropyLoss(nn.Module):
     def _class_weights(input):
         # normalize the input first
         input = F.softmax(input, dim=1)
-        flattened = flatten(input)
+        flattened = per_channel_flatten(input)
         nominator = (1. - flattened).sum(-1)
         denominator = flattened.sum(-1)
         class_weights = Variable(nominator / denominator, requires_grad=False)
@@ -257,7 +278,7 @@ class WeightedSmoothL1Loss(nn.SmoothL1Loss):
         return l1.mean()
 
 
-def flatten(tensor):
+def per_channel_flatten(tensor):
     """Flattens a given tensor such that the channel axis is first.
     The shapes are transformed as follows:
        (N, C, D, H, W) -> (C, N * D * H * W)
@@ -332,6 +353,9 @@ def _create_loss(name, loss_config, weight, ignore_index, pos_weight):
     elif name == 'DiceLoss':
         normalization = loss_config.get('normalization', 'sigmoid')
         return DiceLoss(weight=weight, normalization=normalization)
+    elif name == 'MultiheadDiceLoss':
+        normalization = loss_config.get('normalization', 'sigmoid')
+        return MultiheadDiceLoss(weight=weight, normalization=normalization)
     elif name == 'MSELoss':
         return MSELoss()
     elif name == 'SmoothL1Loss':

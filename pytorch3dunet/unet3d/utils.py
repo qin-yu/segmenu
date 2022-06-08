@@ -252,6 +252,67 @@ class DefaultTensorboardFormatter(_TensorboardFormatter):
         return np.nan_to_num((img - np.min(img)) / np.ptp(img))
 
 
+class MultiheadTensorboardFormatter(_TensorboardFormatter):
+    def __init__(self, skip_last_target=False, **kwargs):
+        super().__init__(**kwargs)
+        self.skip_last_target = skip_last_target
+
+    def __call__(self, name, batch):
+        """
+        Transform a batch to a series of tuples of the form (tag, img), where `tag` corresponds to the image tag
+        and `img` is the image itself.
+
+        Args:
+             name (str): one of 'inputs'/'targets'/'predictions'
+             batch (torch.tensor): 4D or 5D torch tensor
+        """
+
+        def _check_img(tag_img):
+            tag, img = tag_img
+
+            assert img.ndim == 2 or img.ndim == 3, 'Only 2D (HW) and 3D (CHW) images are accepted for display'
+
+            if img.ndim == 2:
+                img = np.expand_dims(img, axis=0)
+            else:
+                C = img.shape[0]
+                assert C == 1 or C == 3, 'Only (1, H, W) or (3, H, W) images are supported'
+
+            return tag, img
+
+        tagged_images_list = self.process_batch(name, batch)
+
+        return [list(map(_check_img, tagged_images)) for tagged_images in tagged_images_list]
+
+    def process_batch(self, name, batch):
+        if name == 'targets' and self.skip_last_target:
+            batch = batch[:, :-1, ...]
+
+        tag_template = '{}/batch_{}/channel_{}/slice_{}'
+
+        tagged_images_list = []
+
+        if batch.ndim == 5:
+            # NCDHW
+            slice_idx = batch.shape[2] // 2  # get the middle slice
+            for channel_idx in range(batch.shape[1]):
+                tagged_images = []
+                for batch_idx in range(batch.shape[0]):
+                    tag = tag_template.format(name, batch_idx, channel_idx, slice_idx)
+                    img = batch[batch_idx, channel_idx, slice_idx, ...]
+                    tagged_images.append((tag, self._normalize_img(img)))
+                tagged_images_list.append(tagged_images)
+        else:
+            # batch has no channel dim: NDHW
+            raise NotImplementedError
+
+        return tagged_images_list
+
+    @staticmethod
+    def _normalize_img(img):
+        return np.nan_to_num((img - np.min(img)) / np.ptp(img))
+
+
 def _find_masks(batch, min_size=10):
     """Center the z-slice in the 'middle' of a given instance, given a batch of instances
 
