@@ -93,7 +93,7 @@ class StandardPredictor(_AbstractPredictor):
             logger.info(f"Saving only channel '{prediction_channel}' from the network output")
 
         device = self.config['device']
-        output_heads = self.config['model'].get('output_heads', 1)
+        out_heads = self.config['model'].get('out_heads', 1)
 
         logger.info(f'Running prediction on {len(test_loader)} batches...')
 
@@ -116,7 +116,7 @@ class StandardPredictor(_AbstractPredictor):
         # allocate prediction and normalization arrays
         logger.info('Allocating prediction and normalization arrays...')
         prediction_maps, normalization_masks = self._allocate_prediction_maps(prediction_maps_shape,
-                                                                              output_heads, h5_output_file)
+                                                                              out_heads, h5_output_file)
 
         # Sets the module in evaluation mode explicitly
         # It is necessary for batchnorm/dropout layers if present as well as final Sigmoid/Softmax to be applied
@@ -131,7 +131,7 @@ class StandardPredictor(_AbstractPredictor):
                 predictions = self.model(batch)
 
                 # wrap predictions into a list if there is only one output head from the network
-                if output_heads == 1:
+                if out_heads == 1:
                     predictions = [predictions]
 
                 # for each output head
@@ -166,18 +166,18 @@ class StandardPredictor(_AbstractPredictor):
 
         # save results
         logger.info(f'Saving predictions to: {output_file}')
-        self._save_results(prediction_maps, normalization_masks, output_heads, h5_output_file, test_loader.dataset)
+        self._save_results(prediction_maps, normalization_masks, out_heads, h5_output_file, test_loader.dataset)
         # close the output H5 file
         h5_output_file.close()
 
-    def _allocate_prediction_maps(self, output_shape, output_heads, output_file):
+    def _allocate_prediction_maps(self, output_shape, out_heads, output_file):
         # initialize the output prediction arrays
-        prediction_maps = [np.zeros(output_shape, dtype='float32') for _ in range(output_heads)]
+        prediction_maps = [np.zeros(output_shape, dtype='float32') for _ in range(out_heads)]
         # initialize normalization mask in order to average out probabilities of overlapping patches
-        normalization_masks = [np.zeros(output_shape, dtype='uint8') for _ in range(output_heads)]
+        normalization_masks = [np.zeros(output_shape, dtype='uint8') for _ in range(out_heads)]
         return prediction_maps, normalization_masks
 
-    def _save_results(self, prediction_maps, normalization_masks, output_heads, output_file, dataset):
+    def _save_results(self, prediction_maps, normalization_masks, out_heads, output_file, dataset):
         def _slice_from_pad(pad):
             if pad == 0:
                 return slice(None, None)
@@ -185,7 +185,7 @@ class StandardPredictor(_AbstractPredictor):
                 return slice(pad, -pad)
 
         # save probability maps
-        prediction_datasets = self.get_output_dataset_names(output_heads, prefix='predictions')
+        prediction_datasets = self.get_output_dataset_names(out_heads, prefix='predictions')
         for prediction_map, normalization_mask, prediction_dataset in zip(prediction_maps, normalization_masks,
                                                                           prediction_datasets):
             prediction_map = prediction_map / normalization_mask
@@ -229,16 +229,16 @@ class LazyPredictor(StandardPredictor):
     def __init__(self, model, output_dir, config, **kwargs):
         super().__init__(model, output_dir, config, **kwargs)
 
-    def _allocate_prediction_maps(self, output_shape, output_heads, output_file):
+    def _allocate_prediction_maps(self, output_shape, out_heads, output_file):
         # allocate datasets for probability maps
-        prediction_datasets = self.get_output_dataset_names(output_heads, prefix='predictions')
+        prediction_datasets = self.get_output_dataset_names(out_heads, prefix='predictions')
         prediction_maps = [
             output_file.create_dataset(dataset_name, shape=output_shape, dtype='float32', chunks=True,
                                        compression='gzip')
             for dataset_name in prediction_datasets]
 
         # allocate datasets for normalization masks
-        normalization_datasets = self.get_output_dataset_names(output_heads, prefix='normalization')
+        normalization_datasets = self.get_output_dataset_names(out_heads, prefix='normalization')
         normalization_masks = [
             output_file.create_dataset(dataset_name, shape=output_shape, dtype='uint8', chunks=True,
                                        compression='gzip')
@@ -246,13 +246,13 @@ class LazyPredictor(StandardPredictor):
 
         return prediction_maps, normalization_masks
 
-    def _save_results(self, prediction_maps, normalization_masks, output_heads, output_file, dataset):
+    def _save_results(self, prediction_maps, normalization_masks, out_heads, output_file, dataset):
         if dataset.mirror_padding:
             logger.warning(
                 f'Mirror padding unsupported in LazyPredictor. Output predictions will be padded with pad_width: {dataset.pad_width}')
 
-        prediction_datasets = self.get_output_dataset_names(output_heads, prefix='predictions')
-        normalization_datasets = self.get_output_dataset_names(output_heads, prefix='normalization')
+        prediction_datasets = self.get_output_dataset_names(out_heads, prefix='predictions')
+        normalization_datasets = self.get_output_dataset_names(out_heads, prefix='normalization')
 
         # normalize the prediction_maps inside the H5
         for prediction_map, normalization_mask, prediction_dataset, normalization_dataset in zip(prediction_maps,
