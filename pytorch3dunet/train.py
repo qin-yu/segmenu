@@ -18,8 +18,13 @@ def main():
     config = load_config(config_type='train')
     os.environ['WANDB_DIR'] = config['trainer']['checkpoint_dir']
     Path(config['trainer']['checkpoint_dir']).mkdir(parents=True, exist_ok=True)
-    wandb_project, wandb_name, wandb_config = create_wandb_config(config)
-    wandb.init(project=wandb_project, name=wandb_name, config=wandb_config)
+    wandb_project, wandb_name, wandb_notes, wandb_config = create_wandb_config(config)
+    wandb.init(
+        project=wandb_project, 
+        name=wandb_name, 
+        notes=wandb_notes,
+        config=wandb_config
+    )
     logger.info((wandb_project, wandb_name))
     logger.info(config)
 

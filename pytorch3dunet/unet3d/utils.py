@@ -438,9 +438,10 @@ def create_wandb_config(config):
     """
 
     project_name = config.get('wandb_project', 'test-project')
+    project_notes = config.get('notes', None)
 
     # get run name from checkpoint dir name
     checkpoint_dir = config['trainer']['checkpoint_dir']
     run_name = os.path.basename(os.path.normpath(checkpoint_dir))
 
-    return project_name, run_name, config
+    return project_name, run_name, project_notes, config
