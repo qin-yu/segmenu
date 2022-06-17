@@ -131,8 +131,9 @@ class StandardPredictor(_AbstractPredictor):
                 predictions = self.model(batch)
 
                 # wrap predictions into a list if there is only one output head from the network
-                if out_heads == 1:
-                    predictions = [predictions]
+                # FIXME: for my new multi-head networks, the output is already wrapped, but still required for old nets
+                # if out_heads == 1:
+                #     predictions = [predictions]
 
                 # for each output head
                 for prediction, prediction_map, normalization_mask in zip(predictions, prediction_maps,
