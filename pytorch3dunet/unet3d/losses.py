@@ -151,6 +151,33 @@ class MultiheadDiceLoss(DiceLoss):
         return torch.sum(torch.stack(losses))  # TODO: Maybe, head_weight?
 
 
+class ProductLoss(nn.Module):
+    """Sum of element-wise multiplications"""
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input1, input2):
+        return (input1 * input2).sum()
+
+
+class TwoheadDiceProdLoss(nn.Module):
+    """Linear combination of Dot Product and Dice losses"""
+
+    def __init__(self):
+        super().__init__()
+        self.dice = MultiheadDiceLoss()
+        self.prod = ProductLoss()
+
+    def forward(self, inputs, targets):
+        if len(inputs) > 2:
+            raise ValueError("TwoheadDiceProdLoss accepts only two predictions.")
+        cells  = inputs[0].sum(axis=1)
+        nuclei = inputs[1].sum(axis=1)
+        loss = self.dice(inputs, targets) + self.prod(cells, nuclei)
+        return loss
+
+
 class GeneralizedDiceLoss(_AbstractDiceLoss):
     """Computes Generalized Dice Loss (GDL) as described in https://arxiv.org/pdf/1707.03237.pdf.
     """
@@ -356,6 +383,8 @@ def _create_loss(name, loss_config, weight, ignore_index, pos_weight):
     elif name == 'MultiheadDiceLoss':
         normalization = loss_config.get('normalization', 'sigmoid')
         return MultiheadDiceLoss(weight=weight, normalization=normalization)
+    elif name == 'TwoheadDiceProdLoss':  # TODO: normalisation?
+        return TwoheadDiceProdLoss()
     elif name == 'MSELoss':
         return MSELoss()
     elif name == 'SmoothL1Loss':
