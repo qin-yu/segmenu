@@ -164,17 +164,18 @@ class ProductLoss(nn.Module):
 class CrossHeadDiceLoss(nn.Module):
     """Linear combination of Dot Product and Dice losses"""
 
-    def __init__(self):
+    def __init__(self, c):
         super().__init__()
         self.multidice = MultiheadDiceLoss()
         self.dice = DiceLoss()
+        self.c = c # cross-head dice coefficient
 
     def forward(self, inputs, targets):
         if len(inputs) > 2:
             raise ValueError("CrossHeadDiceLoss accepts only two predictions/heads.")
         cell_boundary     = inputs[0][:, 1, :, :, :]
         nuclei_foreground = inputs[1][:, 0, :, :, :]
-        loss = self.multidice(inputs, targets) - self.dice(cell_boundary, nuclei_foreground)
+        loss = self.multidice(inputs, targets) - self.c * self.dice(cell_boundary, nuclei_foreground)
         return loss
 
 
@@ -384,7 +385,8 @@ def _create_loss(name, loss_config, weight, ignore_index, pos_weight):
         normalization = loss_config.get('normalization', 'sigmoid')
         return MultiheadDiceLoss(weight=weight, normalization=normalization)
     elif name == 'CrossHeadDiceLoss':  # TODO: normalisation?
-        return CrossHeadDiceLoss()
+        cross_head_dice_coef = loss_config.get('c', 0.5)
+        return CrossHeadDiceLoss(c=cross_head_dice_coef)
     elif name == 'MSELoss':
         return MSELoss()
     elif name == 'SmoothL1Loss':
