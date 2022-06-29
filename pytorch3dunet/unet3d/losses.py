@@ -161,20 +161,20 @@ class ProductLoss(nn.Module):
         return (input1 * input2).sum()
 
 
-class TwoheadDiceProdLoss(nn.Module):
+class CrossHeadDiceLoss(nn.Module):
     """Linear combination of Dot Product and Dice losses"""
 
     def __init__(self):
         super().__init__()
-        self.dice = MultiheadDiceLoss()
-        self.prod = ProductLoss()
+        self.multidice = MultiheadDiceLoss()
+        self.dice = DiceLoss()
 
     def forward(self, inputs, targets):
         if len(inputs) > 2:
-            raise ValueError("TwoheadDiceProdLoss accepts only two predictions.")
-        cells  = inputs[0].sum(axis=1)
-        nuclei = inputs[1].sum(axis=1)
-        loss = self.dice(inputs, targets) + self.prod(cells, nuclei)
+            raise ValueError("CrossHeadDiceLoss accepts only two predictions/heads.")
+        cell_boundary     = inputs[0][:, 1, :, :, :]
+        nuclei_foreground = inputs[1][:, 0, :, :, :]
+        loss = self.multidice(inputs, targets) - self.dice(cell_boundary, nuclei_foreground)
         return loss
 
 
@@ -383,8 +383,8 @@ def _create_loss(name, loss_config, weight, ignore_index, pos_weight):
     elif name == 'MultiheadDiceLoss':
         normalization = loss_config.get('normalization', 'sigmoid')
         return MultiheadDiceLoss(weight=weight, normalization=normalization)
-    elif name == 'TwoheadDiceProdLoss':  # TODO: normalisation?
-        return TwoheadDiceProdLoss()
+    elif name == 'CrossHeadDiceLoss':  # TODO: normalisation?
+        return CrossHeadDiceLoss()
     elif name == 'MSELoss':
         return MSELoss()
     elif name == 'SmoothL1Loss':
