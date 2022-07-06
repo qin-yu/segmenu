@@ -89,9 +89,8 @@ class _AbstractDiceLoss(nn.Module):
     Base class for different implementations of Dice loss.
     """
 
-    def __init__(self, weight=None, normalization='sigmoid'):
-        super(_AbstractDiceLoss, self).__init__()
-        self.register_buffer('weight', weight)
+    def __init__(self, normalization='sigmoid'):
+        super().__init__()
         # The output from the network during training is assumed to be un-normalized probabilities and we would
         # like to normalize the logits. Since Dice (or soft Dice in this case) is usually used for binary data,
         # normalizing the channels with Sigmoid is the default choice even for multi-class segmentation problems.
@@ -104,6 +103,16 @@ class _AbstractDiceLoss(nn.Module):
             self.normalization = nn.Softmax(dim=1)
         else:
             self.normalization = lambda x: x
+
+
+class _AbstractSingleDiceLoss(_AbstractDiceLoss):
+    """
+    Base class for single head implementations of Dice loss.
+    """
+
+    def __init__(self, weight=None, normalization='sigmoid'):
+        super().__init__()
+        self.register_buffer('weight', weight)
 
     def dice(self, input, target, weight):
         # actual Dice score computation; to be implemented by the subclass
@@ -120,7 +129,17 @@ class _AbstractDiceLoss(nn.Module):
         return 1. - torch.mean(per_channel_dice)
 
 
-class DiceLoss(_AbstractDiceLoss):
+class _AbstractMultiDiceLoss(_AbstractDiceLoss):
+    """
+    Base class for multi-head implementations of Dice loss.
+    """
+
+    def __init__(self, weights=None, normalization='sigmoid'):
+        super().__init__()
+        self.register_buffer('weights', weights)
+
+
+class DiceLoss(_AbstractSingleDiceLoss):
     """Computes Dice Loss according to https://arxiv.org/abs/1606.04797.
     For multi-class segmentation `weight` parameter can be used to assign different weights per class.
     The input to the loss function is assumed to be a logit and will be normalized by the Sigmoid function.
@@ -130,19 +149,28 @@ class DiceLoss(_AbstractDiceLoss):
         return compute_per_channel_dice(input, target, weight=self.weight)
 
 
-class MultiheadDiceLoss(DiceLoss):
+class MultiheadDiceLoss(_AbstractMultiDiceLoss):
     """Computes Dice Loss on each head according to https://arxiv.org/abs/1606.04797.
     For multi-class segmentation `weight` parameter can be used to assign different weights per class.
     The input to the loss function is assumed to be a logit and will be normalized by the Sigmoid function.
+
+    This does not inherit from `DiceLoss` because multi-head networks take a list of weight arrays, thus `weights`
     """
 
+    def dice(self, input, target, weight):  # FIXME: weight no used here.
+        return compute_per_channel_dice(input, target, weight)
+
     def forward(self, inputs, targets):
+        """`inputs` and `targets` are lists with head elements each of shape (N, C, D, H, W).
+        For a 2-head network with 2-channel output, `inputs` is [(N, C, D, H, W), (N, C, D, H, W)].
+        Here, `self.weight` must also be per channel and per head, i.e. [(h1c1, h1c2), (h2c1, h2c2)].
+        """
         # get probabilities from logits
         inputs = [self.normalization(input) for input in inputs]
 
         # compute per channel Dice coefficient
         per_channel_dice_list = [
-            self.dice(input, target, weight=self.weight) for input, target in zip(inputs, targets)
+            self.dice(input, target, weight=weight) for input, target, weight in zip(inputs, targets, self.weights)
         ]
 
         # average Dice score across all channels/classes
@@ -162,24 +190,29 @@ class ProductLoss(nn.Module):
 
 
 class CrossHeadDiceLoss(nn.Module):
-    """Linear combination of Dot Product and Dice losses"""
+    """Linear combination of Dot Product and Dice losses
 
-    def __init__(self, c):
+    This is a bad idea because it causes the cell boundary and nucleus foreground predictions to be unclear.
+    One hypothesis is that the "minus cross-head dice" term cancels the effect of a positive dice loss value.
+    """
+
+    def __init__(self, weights, normalization='sigmoid', c=1.0):
         super().__init__()
-        self.multidice = MultiheadDiceLoss()
+        # self.register_buffer('c', c)  # cross-head dice coefficient
+        self.c = c  # cross-head dice coefficient
+        self.multidice = MultiheadDiceLoss(weights=weights)
         self.dice = DiceLoss()
-        self.c = c # cross-head dice coefficient
 
     def forward(self, inputs, targets):
         if len(inputs) > 2:
             raise ValueError("CrossHeadDiceLoss accepts only two predictions/heads.")
-        cell_boundary     = inputs[0][:, 1, :, :, :]
+        cell_boundary = inputs[0][:, 1, :, :, :]
         nuclei_foreground = inputs[1][:, 0, :, :, :]
         loss = self.multidice(inputs, targets) - self.c * self.dice(cell_boundary, nuclei_foreground)
         return loss
 
 
-class GeneralizedDiceLoss(_AbstractDiceLoss):
+class GeneralizedDiceLoss(_AbstractSingleDiceLoss):
     """Computes Generalized Dice Loss (GDL) as described in https://arxiv.org/pdf/1707.03237.pdf.
     """
 
@@ -334,17 +367,22 @@ def get_loss_criterion(config):
     ignore_index = loss_config.pop('ignore_index', None)
     skip_last_target = loss_config.pop('skip_last_target', False)
     weight = loss_config.pop('weight', None)
+    weights = loss_config.pop('weights', None)
 
     if weight is not None:
         # convert to cuda tensor if necessary
         weight = torch.tensor(weight).to(config['device'])
+
+    if weights is not None:
+        # convert to cuda tensor if necessary
+        weights = torch.tensor(weights).to(config['device'])
 
     pos_weight = loss_config.pop('pos_weight', None)
     if pos_weight is not None:
         # convert to cuda tensor if necessary
         pos_weight = torch.tensor(pos_weight).to(config['device'])
 
-    loss = _create_loss(name, loss_config, weight, ignore_index, pos_weight)
+    loss = _create_loss(name, loss_config, weight, weights, ignore_index, pos_weight)
 
     if not (ignore_index is None or name in ['CrossEntropyLoss', 'WeightedCrossEntropyLoss']):
         # use MaskingLossWrapper only for non-cross-entropy losses, since CE losses allow specifying 'ignore_index' directly
@@ -358,7 +396,7 @@ def get_loss_criterion(config):
 
 #######################################################################################################################
 
-def _create_loss(name, loss_config, weight, ignore_index, pos_weight):
+def _create_loss(name, loss_config, weight, weights, ignore_index, pos_weight):
     if name == 'BCEWithLogitsLoss':
         return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     elif name == 'BCEDiceLoss':
@@ -383,10 +421,11 @@ def _create_loss(name, loss_config, weight, ignore_index, pos_weight):
         return DiceLoss(weight=weight, normalization=normalization)
     elif name == 'MultiheadDiceLoss':
         normalization = loss_config.get('normalization', 'sigmoid')
-        return MultiheadDiceLoss(weight=weight, normalization=normalization)
+        return MultiheadDiceLoss(weights=weights, normalization=normalization)
     elif name == 'CrossHeadDiceLoss':  # TODO: normalisation?
-        cross_head_dice_coef = loss_config.get('c', 0.5)
-        return CrossHeadDiceLoss(c=cross_head_dice_coef)
+        cross_head_dice_coef = loss_config.get('c', 1.0)
+        normalization = loss_config.get('normalization', 'sigmoid')
+        return CrossHeadDiceLoss(weights=weights, normalization=normalization, c=cross_head_dice_coef)
     elif name == 'MSELoss':
         return MSELoss()
     elif name == 'SmoothL1Loss':
