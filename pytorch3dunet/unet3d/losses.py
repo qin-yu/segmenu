@@ -145,7 +145,7 @@ class DiceLoss(_AbstractSingleDiceLoss):
     The input to the loss function is assumed to be a logit and will be normalized by the Sigmoid function.
     """
 
-    def dice(self, input, target, weight):  # FIXME: weight no used here.
+    def dice(self, input, target):
         return compute_per_channel_dice(input, target, weight=self.weight)
 
 
@@ -157,7 +157,7 @@ class MultiheadDiceLoss(_AbstractMultiDiceLoss):
     This does not inherit from `DiceLoss` because multi-head networks take a list of weight arrays, thus `weights`
     """
 
-    def dice(self, input, target, weight):  # FIXME: weight no used here.
+    def dice(self, input, target, weight):
         return compute_per_channel_dice(input, target, weight)
 
     def forward(self, inputs, targets):
@@ -176,24 +176,25 @@ class MultiheadDiceLoss(_AbstractMultiDiceLoss):
         # average Dice score across all channels/classes
         losses = [1. - torch.mean(per_channel_dice) for per_channel_dice in per_channel_dice_list]
 
-        return torch.sum(torch.stack(losses))  # TODO: Maybe, head_weight?
-
-
-class ProductLoss(nn.Module):
-    """Sum of element-wise multiplications"""
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, input1, input2):
-        return (input1 * input2).sum()
+        return torch.sum(torch.stack(losses))
 
 
 class CrossHeadDiceLoss(nn.Module):
-    """Linear combination of Dot Product and Dice losses
+    """
+    Linear combination of Cross-head Dice and Dice losses
 
     This is a bad idea because it causes the cell boundary and nucleus foreground predictions to be unclear.
     One hypothesis is that the "minus cross-head dice" term cancels the effect of a positive dice loss value.
+    But when the weights are adjusted to [[1, 2], [2, 1]] to offset the loss of loss from a negative dice,
+    the resulting predictions are the same because `- dice()` of these two are 0.0:
+        [1., 0., 0., 0., 0., 0., 0., 1.]
+        [0., 0., 0., 1., 1., 0., 0., 0.]
+    while the `- dice()` of these two are -0.333...:
+        [1., .5, .5, 0., 0., .5, .5, 1.]
+        [0., .5, .5, 1., 1., .5, .5, 0.]
+    i.e. this loss will make background pixels 0.5
+
+    Don't use this one.
     """
 
     def __init__(self, weights, normalization='sigmoid', c=1.0):
@@ -209,6 +210,37 @@ class CrossHeadDiceLoss(nn.Module):
         cell_boundary = inputs[0][:, 1, :, :, :]
         nuclei_foreground = inputs[1][:, 0, :, :, :]
         loss = self.multidice(inputs, targets) - self.c * self.dice(cell_boundary, nuclei_foreground)
+        return loss
+
+
+class ProductLoss(nn.Module):
+    """Sum of element-wise multiplications"""
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input1, input2):
+        return (input1 * input2).sum()
+
+
+class DotDiceLoss(nn.Module):
+    """
+    Linear combination of Dot Product and Dice losses
+    """
+
+    def __init__(self, weights, normalization='sigmoid', c=1.0):
+        super().__init__()
+        # self.register_buffer('c', c)  # cross-head dice coefficient
+        self.c = c  # cross-head dice coefficient
+        self.multidice = MultiheadDiceLoss(weights=weights)
+        self.product = ProductLoss()
+
+    def forward(self, inputs, targets):
+        if len(inputs) > 2:
+            raise ValueError("CrossHeadDiceLoss accepts only two predictions/heads.")
+        cell_boundary = inputs[0][:, 1, :, :, :]
+        nuclei_foreground = inputs[1][:, 0, :, :, :]
+        loss = self.multidice(inputs, targets) + self.c * self.product(cell_boundary, nuclei_foreground)
         return loss
 
 
@@ -422,10 +454,14 @@ def _create_loss(name, loss_config, weight, weights, ignore_index, pos_weight):
     elif name == 'MultiheadDiceLoss':
         normalization = loss_config.get('normalization', 'sigmoid')
         return MultiheadDiceLoss(weights=weights, normalization=normalization)
-    elif name == 'CrossHeadDiceLoss':  # TODO: normalisation?
+    elif name == 'CrossHeadDiceLoss':
         cross_head_dice_coef = loss_config.get('c', 1.0)
         normalization = loss_config.get('normalization', 'sigmoid')
         return CrossHeadDiceLoss(weights=weights, normalization=normalization, c=cross_head_dice_coef)
+    elif name == 'DotDiceLoss':
+        cross_head_dice_coef = loss_config.get('c', 1.0)
+        normalization = loss_config.get('normalization', 'sigmoid')
+        return DotDiceLoss(weights=weights, normalization=normalization, c=cross_head_dice_coef)
     elif name == 'MSELoss':
         return MSELoss()
     elif name == 'SmoothL1Loss':
