@@ -220,7 +220,7 @@ class ProductLoss(nn.Module):
         super().__init__()
 
     def forward(self, input1, input2):
-        return (input1 * input2).sum()
+        return (input1 * input2).mean()
 
 
 class DotDiceLoss(nn.Module):
@@ -240,7 +240,10 @@ class DotDiceLoss(nn.Module):
             raise ValueError("CrossHeadDiceLoss accepts only two predictions/heads.")
         cell_boundary = inputs[0][:, 1, :, :, :]
         nuclei_foreground = inputs[1][:, 0, :, :, :]
-        loss = self.multidice(inputs, targets) + self.c * self.product(cell_boundary, nuclei_foreground)
+        value1 = self.multidice(inputs, targets)
+        value2 = self.product(cell_boundary, nuclei_foreground)
+        # print(value1, value2)
+        loss = value1 + self.c * value2
         return loss
 
 
