@@ -226,6 +226,8 @@ class ProductLoss(nn.Module):
 class DotDiceLoss(nn.Module):
     """
     Linear combination of Dot Product and Dice losses
+
+    This ruins the training because `(cell_boundary * nuclei_foreground).mean()` grows wild too.
     """
 
     def __init__(self, weights, normalization='sigmoid', c=1.0):
@@ -244,6 +246,30 @@ class DotDiceLoss(nn.Module):
         value2 = self.product(cell_boundary, nuclei_foreground)
         # print(value1, value2)
         loss = value1 + self.c * value2
+        return loss
+
+
+class DotGTDiceLoss(nn.Module):
+    """
+    Linear combination of Dot Product and Dice losses
+    """
+
+    def __init__(self, weights):
+        super().__init__()
+        self.multidice = MultiheadDiceLoss(weights=weights)
+
+    def forward(self, inputs, targets):
+        if len(inputs) > 2:
+            raise ValueError("CrossHeadDiceLoss accepts only two predictions/heads.")
+        cell_boundary = inputs[0][:, 1, :, :, :]
+        cell_boundary_gt = targets[0][:, 1, :, :, :]
+        nuclei_foreground = inputs[1][:, 0, :, :, :]
+        nuclei_foreground_gt = targets[1][:, 0, :, :, :]
+        value1 = self.multidice(inputs, targets)
+        value2 = (cell_boundary * nuclei_foreground_gt).mean()
+        value3 = (nuclei_foreground * cell_boundary_gt).mean()
+        print(value1, value2, value3)
+        loss = value1 + 0.5 * value2 + 0.5 * value3
         return loss
 
 
@@ -465,6 +491,8 @@ def _create_loss(name, loss_config, weight, weights, ignore_index, pos_weight):
         cross_head_dice_coef = loss_config.get('c', 1.0)
         normalization = loss_config.get('normalization', 'sigmoid')
         return DotDiceLoss(weights=weights, normalization=normalization, c=cross_head_dice_coef)
+    elif name == 'DotGTDiceLoss':
+        return DotGTDiceLoss(weights=weights)
     elif name == 'MSELoss':
         return MSELoss()
     elif name == 'SmoothL1Loss':
