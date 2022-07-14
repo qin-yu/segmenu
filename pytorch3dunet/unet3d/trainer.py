@@ -194,6 +194,8 @@ class UNet3DTrainer:
 
             input, target, weight = self._split_training_batch(t)
 
+            # loss_flag = 1 if self.num_iterations > 15000 else 0
+            # output, loss = self._forward_pass(input, target, weight, loss_flag)
             output, loss = self._forward_pass(input, target, weight)
 
             train_losses.update(loss.item(), self._batch_size(input))
@@ -222,7 +224,8 @@ class UNet3DTrainer:
                 is_best = self._is_best_eval_score(eval_score)
 
                 # save checkpoint
-                self._save_checkpoint(is_best)
+                save_intermediate = True if self.num_iterations % (self.validate_after_iters * 4) == 0 else False
+                self._save_checkpoint(is_best, save_intermediate)
 
             if self.num_iterations % self.log_after_iters == 0:
                 # compute eval criterion
@@ -305,15 +308,19 @@ class UNet3DTrainer:
             input, target, weight = t
         return input, target, weight
 
-    def _forward_pass(self, input, target, weight=None):
+    def _forward_pass(self, input, target, weight=None, loss_flag=None):
         # forward pass
         output = self.model(input)
 
         # compute the loss
-        if weight is None:
+        if weight is None and loss_flag is None:
             loss = self.loss_criterion(output, target)
-        else:
+        elif weight is None:
+            loss = self.loss_criterion(output, target, loss_flag)
+        elif loss is None:
             loss = self.loss_criterion(output, target, weight)
+        else:
+            loss = self.loss_criterion(output, target, weight, loss_flag)
 
         return output, loss
 
@@ -329,7 +336,7 @@ class UNet3DTrainer:
 
         return is_best
 
-    def _save_checkpoint(self, is_best):
+    def _save_checkpoint(self, is_best, save_intermediate):
         # remove `module` prefix from layer names when using `nn.DataParallel`
         # see: https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/20
         if isinstance(self.model, nn.DataParallel):
@@ -346,7 +353,8 @@ class UNet3DTrainer:
             'model_state_dict': state_dict,
             'best_eval_score': self.best_eval_score,
             'optimizer_state_dict': self.optimizer.state_dict(),
-        }, is_best, checkpoint_dir=self.checkpoint_dir)
+        }, is_best, checkpoint_dir=self.checkpoint_dir,
+        save_intermediate=save_intermediate, this_iter=self.num_iterations)
 
     def _log_lr(self):
         lr = self.optimizer.param_groups[0]['lr']

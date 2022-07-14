@@ -14,19 +14,23 @@ plt.ioff()
 plt.switch_backend('agg')
 
 
-def save_checkpoint(state, is_best, checkpoint_dir):
+def save_checkpoint(state, is_best, checkpoint_dir, save_intermediate, this_iter):
     """Saves model and training parameters at '{checkpoint_dir}/last_checkpoint.pytorch'.
     If is_best==True saves '{checkpoint_dir}/best_checkpoint.pytorch' as well.
 
     Args:
         state (dict): contains model's state_dict, optimizer's state_dict, epoch
             and best evaluation metric value so far
-        is_best (bool): if True state contains the best model seen so far
+        is_best (bool): True if state contains the best model seen so far
         checkpoint_dir (string): directory where the checkpoint are to be saved
     """
 
     if not os.path.exists(checkpoint_dir):
         os.mkdir(checkpoint_dir)
+
+    if save_intermediate:
+        this_file_path = os.path.join(checkpoint_dir, f'{this_iter}_checkpoint.pytorch')
+        torch.save(state, this_file_path)
 
     last_file_path = os.path.join(checkpoint_dir, 'last_checkpoint.pytorch')
     torch.save(state, last_file_path)
