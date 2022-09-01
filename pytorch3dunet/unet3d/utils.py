@@ -253,8 +253,6 @@ class DefaultTensorboardFormatter(_TensorboardFormatter):
 
     @staticmethod
     def _normalize_img(img):
-        if np.all(img == 1):
-            return img
         return np.nan_to_num((img - np.min(img)) / np.ptp(img))
 
 
