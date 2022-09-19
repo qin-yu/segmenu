@@ -759,14 +759,6 @@ class Transformer:
         return aug_class(**config)
 
 
-def _recover_ignore_index(input, orig, ignore_index):
-    if ignore_index is not None:
-        mask = orig == ignore_index
-        input[mask] = ignore_index
-
-    return input
-
-
 class MultiheadTransformer:
     def __init__(self, phase_config, base_config, out_heads):
         self.phase_config = phase_config
@@ -778,7 +770,13 @@ class MultiheadTransformer:
         return self._create_transform('raw')
 
     def label_transform(self):
-        return [self._create_transform('label') for i in range(self.out_heads)]
+        if 'label-cells' in self.phase_config and 'label-nuclei' in self.phase_config:
+            # Make sure cell configs goes first across config files
+            return [self._create_transform('label-cells'), self._create_transform('label-nuclei')]
+        elif 'label' in self.phase_config:
+            return [self._create_transform('label') for i in range(self.out_heads)]
+        else:
+            raise KeyError("No `label` or `label-cells/nuclei` pair in phase config (transformation config)!")
 
     def weight_transform(self):
         return self._create_transform('weight')
