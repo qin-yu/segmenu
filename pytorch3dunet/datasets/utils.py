@@ -225,8 +225,8 @@ def get_train_loaders(config):
         'val': <val_loader>
     }
     """
-    assert 'loaders' in config, 'Could not find data loaders configuration'
-    loaders_config = config['loaders']
+    assert 'loaders-train' in config, 'Could not find data loaders configuration'
+    loaders_config = config['loaders-train']
 
     logger.info('Creating training and validation set loaders...')
 
@@ -269,8 +269,8 @@ def get_test_loaders(config):
     :return: generator of DataLoader objects
     """
 
-    assert 'loaders' in config, 'Could not find data loaders configuration'
-    loaders_config = config['loaders']
+    assert 'loaders-predict' in config, 'Could not find data loaders configuration'
+    loaders_config = config['loaders-predict']
 
     logger.info('Creating test set loaders...')
 
