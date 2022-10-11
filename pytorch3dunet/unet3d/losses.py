@@ -4,8 +4,8 @@ from torch import nn as nn
 from torch.autograd import Variable
 from torch.nn import MSELoss, SmoothL1Loss, L1Loss
 
-from pytorch3dunet.unet3d.utils import expand_as_one_hot
-
+from pytorch3dunet.unet3d.utils import get_logger, expand_as_one_hot
+logger = get_logger('Loss')
 
 def compute_per_channel_dice(input, target, epsilon=1e-6, weight=None):
     """
@@ -207,7 +207,7 @@ class CrossHeadDiceLoss(nn.Module):
     def forward(self, inputs, targets):
         if len(inputs) > 2:
             raise ValueError("CrossHeadDiceLoss accepts only two predictions/heads.")
-        cell_boundary = inputs[0][:, 1, :, :, :]
+        cell_boundary = inputs[0][:, 0, :, :, :]
         nuclei_foreground = inputs[1][:, 0, :, :, :]
         loss = self.multidice(inputs, targets) - self.c * self.dice(cell_boundary, nuclei_foreground)
         return loss
@@ -220,7 +220,9 @@ class ProductLoss(nn.Module):
         super().__init__()
 
     def forward(self, input1, input2):
-        return (input1 * input2).mean()
+        prob1 = F.softmax(input1)
+        prob2 = F.softmax(input2)
+        return (prob1 * prob2).mean()
 
 
 class DotDiceLoss(nn.Module):
@@ -240,12 +242,13 @@ class DotDiceLoss(nn.Module):
     def forward(self, inputs, targets):
         if len(inputs) > 2:
             raise ValueError("CrossHeadDiceLoss accepts only two predictions/heads.")
-        cell_boundary = inputs[0][:, 1, :, :, :]
+        cell_boundary = inputs[0][:, 0, :, :, :]
         nuclei_foreground = inputs[1][:, 0, :, :, :]
         value1 = self.multidice(inputs, targets)
         value2 = self.product(cell_boundary, nuclei_foreground)
         # print(value1, value2)
         loss = value1 + self.c * value2
+        logger.info(f"Multihead dice loss: {value1}, product loss: {value2}, effective product loss {self.c * value2}")
         return loss
 
 
