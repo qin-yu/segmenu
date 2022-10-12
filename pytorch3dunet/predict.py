@@ -42,7 +42,7 @@ def main():
     logger.info(f"Sending the model to '{device}'")
     model = model.to(device)
 
-    output_dir = config['loaders'].get('output_dir', None)
+    output_dir = config['loaders-predict'].get('output_dir', None)
     if output_dir is not None:
         os.makedirs(output_dir, exist_ok=True)
         logger.info(f'Saving predictions to: {output_dir}')
