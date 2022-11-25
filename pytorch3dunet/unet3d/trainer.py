@@ -223,7 +223,7 @@ class UNet3DTrainer:
                 # remember best validation metric
                 is_best = self._is_best_eval_score(eval_score)
 
-                # save checkpoint
+                # save checkpoint periodically
                 save_intermediate = True if self.num_iterations % (self.validate_after_iters * 4) == 0 else False
                 self._save_checkpoint(is_best, save_intermediate)
 
