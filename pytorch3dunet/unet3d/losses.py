@@ -125,7 +125,7 @@ class _AbstractSingleDiceLoss(_AbstractDiceLoss):
         input = self.normalization(input)
 
         # compute per channel Dice coefficient
-        per_channel_dice = self.dice(input, target, weight=self.weight)
+        per_channel_dice = self.dice(input, target)  # NOTE: weight is accessed as an object attribute
 
         # average Dice score across all channels/classes
         return 1.0 - torch.mean(per_channel_dice)
