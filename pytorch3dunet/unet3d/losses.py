@@ -5,7 +5,9 @@ from torch.autograd import Variable
 from torch.nn import MSELoss, SmoothL1Loss, L1Loss
 
 from pytorch3dunet.unet3d.utils import get_logger, expand_as_one_hot
+
 logger = get_logger('Loss')
+
 
 def compute_per_channel_dice(input, target, epsilon=1e-6, weight=None):
     """
@@ -126,7 +128,7 @@ class _AbstractSingleDiceLoss(_AbstractDiceLoss):
         per_channel_dice = self.dice(input, target, weight=self.weight)
 
         # average Dice score across all channels/classes
-        return 1. - torch.mean(per_channel_dice)
+        return 1.0 - torch.mean(per_channel_dice)
 
 
 class _AbstractMultiDiceLoss(_AbstractDiceLoss):
@@ -146,6 +148,7 @@ class DiceLoss(_AbstractSingleDiceLoss):
     """
 
     def dice(self, input, target):
+        # NOTE: self.dice() is just compute_per_channel_dice(), but self.forward() is 1.0 - dice()
         return compute_per_channel_dice(input, target, weight=self.weight)
 
 
@@ -174,12 +177,12 @@ class MultiheadDiceLoss(_AbstractMultiDiceLoss):
         ]
 
         # average Dice score across all channels/classes
-        losses = [1. - torch.mean(per_channel_dice) for per_channel_dice in per_channel_dice_list]
+        losses = [1.0 - torch.mean(per_channel_dice) for per_channel_dice in per_channel_dice_list]
 
         return torch.sum(torch.stack(losses))
 
 
-class CrossHeadDiceLoss(nn.Module):
+class CrossHeadDiceLoss(nn.Module):  # failure: I believe there are some bugs to be fixed
     """
     Linear combination of Cross-head Dice and Dice losses
 
@@ -213,7 +216,7 @@ class CrossHeadDiceLoss(nn.Module):
         return loss
 
 
-class ProductLoss(nn.Module):
+class ProductLoss(nn.Module):  # failure: need more exploration.
     """Sum of element-wise multiplications"""
 
     def __init__(self):
@@ -225,7 +228,20 @@ class ProductLoss(nn.Module):
         return (prob1 * prob2).mean()
 
 
-class DotDiceLoss(nn.Module):
+class ProductLossNew(nn.Module):  # not finished
+    """Sum of element-wise multiplications"""
+
+    def __init__(self):
+        super().__init__()
+        self.normalization = nn.Sigmoid()
+
+    def forward(self, input1, input2):
+        prob1 = self.normalization(input1)
+        prob2 = self.normalization(input2)
+        return (prob1 * prob2).mean()
+
+
+class DotDiceLoss(nn.Module):  # failure
     """
     Linear combination of Dot Product and Dice losses
 
@@ -236,6 +252,35 @@ class DotDiceLoss(nn.Module):
         super().__init__()
         # self.register_buffer('c', c)  # cross-head dice coefficient
         self.c = c  # cross-head dice coefficient
+        self.multidice = MultiheadDiceLoss(weights=weights)
+        self.product = ProductLoss()
+
+    def forward(self, inputs, targets):
+        if len(inputs) > 2:
+            raise ValueError("CrossHeadDiceLoss accepts only two predictions/heads.")
+        cell_boundary = inputs[0][:, 0, :, :, :]
+        nuclei_foreground = inputs[1][:, 0, :, :, :]
+        value1 = self.multidice(inputs, targets)
+        value2 = self.product(cell_boundary, nuclei_foreground)
+        # print(value1, value2)
+        loss = value1 + self.c * value2
+        logger.info(f"Multihead dice loss: {value1}, product loss: {value2}, effective product loss {self.c * value2}")
+        return loss
+
+
+class DynamicDotDiceLoss(nn.Module):
+    """
+    Linear combination of Dot Product and Dice losses
+
+    This ruins the training because `(cell_boundary * nuclei_foreground).mean()` grows wild too.
+    """
+
+    def __init__(self, weights, normalization='sigmoid'):
+        super().__init__()
+        # self.register_buffer('c', c)  # cross-head dice coefficient
+        # if c is not None and dynamic is not None:
+        #     raise ValueError("Cannot have fixed weight and dynamic weight at the same time")
+        # self.c = c  # cross-head dice coefficient
         self.multidice = MultiheadDiceLoss(weights=weights)
         self.product = ProductLoss()
 
@@ -277,8 +322,7 @@ class DotGTDiceLoss(nn.Module):
 
 
 class GeneralizedDiceLoss(_AbstractSingleDiceLoss):
-    """Computes Generalized Dice Loss (GDL) as described in https://arxiv.org/pdf/1707.03237.pdf.
-    """
+    """Computes Generalized Dice Loss (GDL) as described in https://arxiv.org/pdf/1707.03237.pdf."""
 
     def __init__(self, normalization='sigmoid', epsilon=1e-6):
         super().__init__(weight=None, normalization=normalization)
@@ -326,8 +370,7 @@ class BCEDiceLoss(nn.Module):
 
 
 class WeightedCrossEntropyLoss(nn.Module):
-    """WeightedCrossEntropyLoss (WCE) as described in https://arxiv.org/pdf/1707.03237.pdf
-    """
+    """WeightedCrossEntropyLoss (WCE) as described in https://arxiv.org/pdf/1707.03237.pdf"""
 
     def __init__(self, ignore_index=-1):
         super(WeightedCrossEntropyLoss, self).__init__()
@@ -342,7 +385,7 @@ class WeightedCrossEntropyLoss(nn.Module):
         # normalize the input first
         input = F.softmax(input, dim=1)
         flattened = per_channel_flatten(input)
-        nominator = (1. - flattened).sum(-1)
+        nominator = (1.0 - flattened).sum(-1)
         denominator = flattened.sum(-1)
         class_weights = Variable(nominator / denominator, requires_grad=False)
         return class_weights
@@ -460,12 +503,13 @@ def get_loss_criterion(config):
 
 #######################################################################################################################
 
+
 def _create_loss(name, loss_config, weight, weights, ignore_index, pos_weight):
     if name == 'BCEWithLogitsLoss':
         return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     elif name == 'BCEDiceLoss':
-        alpha = loss_config.get('alphs', 1.)
-        beta = loss_config.get('beta', 1.)
+        alpha = loss_config.get('alphs', 1.0)
+        beta = loss_config.get('beta', 1.0)
         return BCEDiceLoss(alpha, beta)
     elif name == 'CrossEntropyLoss':
         if ignore_index is None:
@@ -491,7 +535,7 @@ def _create_loss(name, loss_config, weight, weights, ignore_index, pos_weight):
         normalization = loss_config.get('normalization', 'sigmoid')
         return CrossHeadDiceLoss(weights=weights, normalization=normalization, c=cross_head_dice_coef)
     elif name == 'DotDiceLoss':
-        cross_head_dice_coef = loss_config.get('c', 1.0)
+        cross_head_dice_coef = loss_config.get('c', None)
         normalization = loss_config.get('normalization', 'sigmoid')
         return DotDiceLoss(weights=weights, normalization=normalization, c=cross_head_dice_coef)
     elif name == 'DotGTDiceLoss':
@@ -503,8 +547,10 @@ def _create_loss(name, loss_config, weight, weights, ignore_index, pos_weight):
     elif name == 'L1Loss':
         return L1Loss()
     elif name == 'WeightedSmoothL1Loss':
-        return WeightedSmoothL1Loss(threshold=loss_config['threshold'],
-                                    initial_weight=loss_config['initial_weight'],
-                                    apply_below_threshold=loss_config.get('apply_below_threshold', True))
+        return WeightedSmoothL1Loss(
+            threshold=loss_config['threshold'],
+            initial_weight=loss_config['initial_weight'],
+            apply_below_threshold=loss_config.get('apply_below_threshold', True),
+        )
     else:
         raise RuntimeError(f"Unsupported loss function: '{name}'")
