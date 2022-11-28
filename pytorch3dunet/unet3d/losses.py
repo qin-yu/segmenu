@@ -182,37 +182,27 @@ class MultiheadDiceLoss(_AbstractMultiDiceLoss):
         return torch.sum(torch.stack(losses))
 
 
-class CrossHeadDiceLoss(nn.Module):  # failure: I believe there are some bugs to be fixed
+class CrossHeadDiceLoss(nn.Module):
     """
     Linear combination of Cross-head Dice and Dice losses
-
-    This is a bad idea because it causes the cell boundary and nucleus foreground predictions to be unclear.
-    One hypothesis is that the "minus cross-head dice" term cancels the effect of a positive dice loss value.
-    But when the weights are adjusted to [[1, 2], [2, 1]] to offset the loss of loss from a negative dice,
-    the resulting predictions are the same because `- dice()` of these two are 0.0:
-        [1., 0., 0., 0., 0., 0., 0., 1.]
-        [0., 0., 0., 1., 1., 0., 0., 0.]
-    while the `- dice()` of these two are -0.333...:
-        [1., .5, .5, 0., 0., .5, .5, 1.]
-        [0., .5, .5, 1., 1., .5, .5, 0.]
-    i.e. this loss will make background pixels 0.5
-
-    Don't use this one.
     """
 
-    def __init__(self, weights, normalization='sigmoid', c=1.0):
+    def __init__(self, weights, head_0_channel, head_1_channel, normalization='sigmoid', c=1.0):
         super().__init__()
         # self.register_buffer('c', c)  # cross-head dice coefficient
         self.c = c  # cross-head dice coefficient
         self.multidice = MultiheadDiceLoss(weights=weights)
-        self.dice = DiceLoss()
+        self.dice = DiceLoss(normalization=normalization)
+        self.channels = [head_0_channel, head_1_channel]
 
     def forward(self, inputs, targets):
         if len(inputs) > 2:
             raise ValueError("CrossHeadDiceLoss accepts only two predictions/heads.")
-        cell_boundary = inputs[0][:, 0, :, :, :]
-        nuclei_foreground = inputs[1][:, 0, :, :, :]
-        loss = self.multidice(inputs, targets) - self.c * self.dice(cell_boundary, nuclei_foreground)
+        cell_boundary = inputs[0][:, self.channels[0], :, :, :]
+        nuclei_foreground = inputs[1][:, self.channels[1], :, :, :]
+
+        loss_cross_head = 1.0 - self.dice(cell_boundary, nuclei_foreground)  # just a per-channel dice
+        loss = self.multidice(inputs, targets) + self.c * loss_cross_head
         return loss
 
 
@@ -268,7 +258,7 @@ class DotDiceLoss(nn.Module):  # failure
         return loss
 
 
-class DynamicDotDiceLoss(nn.Module):
+class DynamicDotDiceLoss(nn.Module):  # not finished
     """
     Linear combination of Dot Product and Dice losses
 
@@ -531,9 +521,11 @@ def _create_loss(name, loss_config, weight, weights, ignore_index, pos_weight):
         normalization = loss_config.get('normalization', 'sigmoid')
         return MultiheadDiceLoss(weights=weights, normalization=normalization)
     elif name == 'CrossHeadDiceLoss':
-        cross_head_dice_coef = loss_config.get('c', 1.0)
+        head_0_channel = loss_config.get('head_0_channel')
+        head_1_channel = loss_config.get('head_1_channel')
         normalization = loss_config.get('normalization', 'sigmoid')
-        return CrossHeadDiceLoss(weights=weights, normalization=normalization, c=cross_head_dice_coef)
+        cross_head_dice_coef = loss_config.get('c', 1.0)
+        return CrossHeadDiceLoss(weights=weights, head_0_channel=head_0_channel, head_1_channel=head_1_channel, normalization=normalization, c=cross_head_dice_coef)
     elif name == 'DotDiceLoss':
         cross_head_dice_coef = loss_config.get('c', None)
         normalization = loss_config.get('normalization', 'sigmoid')
