@@ -152,6 +152,21 @@ class DiceLoss(_AbstractSingleDiceLoss):
         return compute_per_channel_dice(input, target, weight=self.weight)
 
 
+class OverlapLoss(_AbstractDiceLoss):
+    """ """
+
+    def overlap_score(self, t0, t1):
+        return torch.mean(t0 * t1)
+
+    def forward(self, t0, t1):
+        # get probabilities from logits (the unnormalised predictions of a model)
+        t0 = self.normalization(t0)
+        t1 = self.normalization(t1)
+
+        # return average overlapping score
+        return self.overlap_score(t0, t1)  # NOTE: weight is accessed as an object attribute
+
+
 class MultiheadDiceLoss(_AbstractMultiDiceLoss):
     """Computes Dice Loss on each head according to https://arxiv.org/abs/1606.04797.
     For multi-class segmentation `weight` parameter can be used to assign different weights per class.
@@ -206,19 +221,32 @@ class CrossHeadDiceLoss(nn.Module):
         return loss
 
 
-class ProductLoss(nn.Module):  # failure: need more exploration.
-    """Sum of element-wise multiplications"""
+class CrossHeadOverlapPlusDice(nn.Module):
+    """
+    Linear combination of Cross-head Dice and Overlap losses
+    TODO: abstract a parent class from CrossHeadDiceLoss and CrossHeadOverlapPlusDice
+    """
 
-    def __init__(self):
+    def __init__(self, weights, head_0_channel, head_1_channel, normalization='sigmoid', c=1.0):
         super().__init__()
+        # self.register_buffer('c', c)  # cross-head dice coefficient
+        self.c = c  # cross-head dice coefficient
+        self.multidice = MultiheadDiceLoss(weights=weights)
+        self.overlap = OverlapLoss(normalization=normalization)
+        self.channels = [head_0_channel, head_1_channel]
 
-    def forward(self, input1, input2):
-        prob1 = F.softmax(input1)
-        prob2 = F.softmax(input2)
-        return (prob1 * prob2).mean()
+    def forward(self, inputs, targets):
+        if len(inputs) > 2:
+            raise ValueError("CrossHeadDiceLoss accepts only two predictions/heads.")
+        cell_boundary = inputs[0][:, self.channels[0], :, :, :]
+        nuclei_foreground = inputs[1][:, self.channels[1], :, :, :]
+
+        loss_cross_head = self.overlap(cell_boundary, nuclei_foreground)
+        loss = self.multidice(inputs, targets) + self.c * loss_cross_head
+        return loss
 
 
-class ProductLossNew(nn.Module):  # not finished
+class ProductLoss(nn.Module):  # failure: need more exploration.
     """Sum of element-wise multiplications"""
 
     def __init__(self):
@@ -517,6 +545,9 @@ def _create_loss(name, loss_config, weight, weights, ignore_index, pos_weight):
     elif name == 'DiceLoss':
         normalization = loss_config.get('normalization', 'sigmoid')
         return DiceLoss(weight=weight, normalization=normalization)
+    # elif name == 'OverlapLoss':
+    #     normalization = loss_config.get('normalization', 'sigmoid')
+    #     return OverlapLoss(normalization=normalization)
     elif name == 'MultiheadDiceLoss':
         normalization = loss_config.get('normalization', 'sigmoid')
         return MultiheadDiceLoss(weights=weights, normalization=normalization)
@@ -525,7 +556,25 @@ def _create_loss(name, loss_config, weight, weights, ignore_index, pos_weight):
         head_1_channel = loss_config.get('head_1_channel')
         normalization = loss_config.get('normalization', 'sigmoid')
         cross_head_dice_coef = loss_config.get('c', 1.0)
-        return CrossHeadDiceLoss(weights=weights, head_0_channel=head_0_channel, head_1_channel=head_1_channel, normalization=normalization, c=cross_head_dice_coef)
+        return CrossHeadDiceLoss(
+            weights=weights,
+            head_0_channel=head_0_channel,
+            head_1_channel=head_1_channel,
+            normalization=normalization,
+            c=cross_head_dice_coef,
+        )
+    elif name == 'CrossHeadOverlapPlusDice':
+        head_0_channel = loss_config.get('head_0_channel')
+        head_1_channel = loss_config.get('head_1_channel')
+        normalization = loss_config.get('normalization', 'sigmoid')
+        cross_head_dice_coef = loss_config.get('c', 1.0)
+        return CrossHeadDiceLoss(
+            weights=weights,
+            head_0_channel=head_0_channel,
+            head_1_channel=head_1_channel,
+            normalization=normalization,
+            c=cross_head_dice_coef,
+        )
     elif name == 'DotDiceLoss':
         cross_head_dice_coef = loss_config.get('c', None)
         normalization = loss_config.get('normalization', 'sigmoid')
