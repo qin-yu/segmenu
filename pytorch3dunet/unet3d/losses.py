@@ -568,7 +568,7 @@ def _create_loss(name, loss_config, weight, weights, ignore_index, pos_weight):
         head_1_channel = loss_config.get('head_1_channel')
         normalization = loss_config.get('normalization', 'sigmoid')
         cross_head_dice_coef = loss_config.get('c', 1.0)
-        return CrossHeadDiceLoss(
+        return CrossHeadOverlapPlusDice(
             weights=weights,
             head_0_channel=head_0_channel,
             head_1_channel=head_1_channel,
