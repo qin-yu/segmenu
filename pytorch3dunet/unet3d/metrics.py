@@ -164,7 +164,7 @@ class AdaptedRandError:
             for input_ic, target_ic in zip(input_i, target_i):  # For DHW in CDHW
 
                 # skip ARand for single-valued target to avoid zero-division
-                if np.all(target_ic == target_ic[0]):
+                if np.all(target_ic == target_ic.flat[0]):
                     logger.info('Skipping ARandError computation: only 1 label present in the ground truth')
                     per_batch_arand.append(0.0)
                     continue
